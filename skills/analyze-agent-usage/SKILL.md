@@ -1,26 +1,25 @@
 ---
 name: analyze-agent-usage
 description: >
-  Queries and analyzes GitHub Copilot agent usage metrics stored locally by arok (Agent Resource
-  Observation Kit). Retrieves token consumption, session history, per-repo and per-host breakdowns,
-  model usage, and cost-relevant data from a local SQLite database. Enables agents to reason
-  about AI resource consumption for tasks, features, sprints, or individual sessions — supporting
-  workflows like JIRA time/cost tracking, team usage reporting, multi-host container
-  observability, and agentic budget analysis. Reads data only; never modifies the arok database.
-  WHEN: query agent usage, analyze token consumption, how many tokens did the agent use, check
-  copilot usage, arok query, arok analyze, usage by repo, usage by branch, usage by host,
+  Queries and analyzes AI agent usage metrics stored locally by arok (Agent Resource Observation
+  Kit). Retrieves token consumption, session history, per-repo and per-host breakdowns, model
+  usage, and cost-relevant data from a local SQLite database. Enables agents to reason about AI
+  resource consumption for tasks, features, sprints, or individual sessions — supporting workflows
+  like JIRA time/cost tracking, team usage reporting, multi-host container observability, and
+  agentic budget analysis. Reads data only; never modifies the arok database.
+  WHEN: query agent usage, analyze token consumption, how many tokens did the agent use,
+  check AI usage, arok query, arok analyze, usage by repo, usage by branch, usage by host,
   session metrics, show me token usage, AI resource consumption, agent cost tracking,
-  how much did this task cost, usage report, Copilot session data, analyze agent sessions,
+  how much did this task cost, usage report, agent session data, analyze agent sessions,
   agentic resource usage, token budget.
 license: "MIT"
 metadata:
   author: "srbouffard"
-  version: "1.0.0"
-  summary: "Query and analyze local Copilot agent usage metrics via the arok CLI."
+  version: "1.0.1"
+  summary: "Query and analyze local AI agent usage metrics via the arok CLI."
   tags:
     - arok
     - observability
-    - copilot
     - agent-usage
     - tokens
     - analytics
@@ -30,7 +29,7 @@ metadata:
 
 ## Overview
 
-`arok` is a local-first CLI that captures GitHub Copilot (CLI and VS Code) usage into a SQLite database. Use this skill to retrieve and reason about token consumption, session histories, and AI resource costs across repos, branches, hosts, and models.
+`arok` is a local-first CLI that captures AI agent usage into a SQLite database. Use this skill to retrieve and reason about token consumption, session histories, and AI resource costs across repos, branches, hosts, and models.
 
 Before running any command, verify arok is available:
 
