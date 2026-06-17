@@ -50,15 +50,26 @@ func InstallCopilot(binaryPath, stateDir, copilotHome string) (CopilotInstallRes
 }
 
 func RenderCopilotConfig(binaryPath, stateDir string) ([]byte, error) {
-	command := fmt.Sprintf("%s capture --harness copilot --event sessionEnd", shellQuote(binaryPath))
+	cliCommand := fmt.Sprintf("%s capture --harness copilot --event sessionEnd", shellQuote(binaryPath))
+	vscodeCommand := fmt.Sprintf("%s capture --harness vscode --event Stop", shellQuote(binaryPath))
 	config := map[string]any{
 		"version": 1,
 		"hooks": map[string]any{
 			"sessionEnd": []map[string]any{
 				{
 					"type":       "command",
-					"bash":       command,
+					"bash":       cliCommand,
 					"timeoutSec": 10,
+					"env": map[string]string{
+						"AROK_STATE_DIR": stateDir,
+					},
+				},
+			},
+			"Stop": []map[string]any{
+				{
+					"type":       "command",
+					"bash":       vscodeCommand,
+					"timeoutSec": 15,
 					"env": map[string]string{
 						"AROK_STATE_DIR": stateDir,
 					},

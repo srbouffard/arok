@@ -2,14 +2,15 @@
 
 **Agent Resource Observation Kit** — a local-first CLI for capturing and querying LLM and agent usage.
 
-Version 1 provides production-ready **GitHub Copilot CLI** support with:
+Version 1 provides production-ready **GitHub Copilot** support across the CLI and VS Code with:
 
-1. Automatic session-end capture via Copilot hooks
-2. SQLite-backed local storage for all usage data
-3. Git metadata enrichment (repo, branch, commit)
-4. Idempotent session tracking for resumed sessions
-5. Autonomous reconciliation for late-arriving usage totals
-6. Focused query and analytics commands
+1. Automatic Copilot CLI session-end capture via hooks
+2. Automatic VS Code Copilot stop-hook capture plus historical session import
+3. SQLite-backed local storage for all usage data
+4. Git metadata enrichment (repo, branch, commit)
+5. Idempotent session tracking for resumed sessions
+6. Autonomous reconciliation for late-arriving usage totals
+7. Focused query and analytics commands
 
 ## Features
 
@@ -62,8 +63,15 @@ arok install copilot
 
 The `install copilot` command:
 - Creates hook configuration at `~/.copilot/hooks/arok-copilot.json`
+- Installs hooks for both Copilot CLI (`sessionEnd`) and VS Code (`Stop`)
 - Initializes the state directory and SQLite database
 - Validates that the Copilot CLI will invoke the hooks
+
+To import existing VS Code Copilot sessions:
+
+```bash
+arok capture --harness vscode --event scan
+```
 
 **Installation options:**
 - `arok install copilot --state-dir PATH` — Override state directory

@@ -6,6 +6,7 @@ const (
 	CaptureStateBestEffort  = "best_effort" // reconcile exhausted; best data available
 	UsageSourceShutdown     = "session.shutdown.modelMetrics"
 	HarnessCopilotCLI       = "copilot-cli"
+	HarnessVSCodeCopilot    = "copilot-vscode"
 )
 
 type SessionSummary struct {
