@@ -17,8 +17,6 @@
 `arok` captures usage from GitHub Copilot (CLI and VS Code) automatically via hooks, stores everything in a local SQLite database, and gives you per-session, per-repo, per-model breakdowns — no accounts, no telemetry, no cloud.
 
 - 🔒 **Fully local** — SQLite on disk, zero cloud, zero accounts
-- ⚡ **Zero-config capture** — hooks fire automatically on session end
-- 🖥️ **CLI + VS Code** — one install covers both Copilot harnesses
 - 🔍 **Rich filtering** — query by host, repo, branch, model, or time window
 - 🌐 **Multi-host ready** — hostname on every session; mount a shared state dir across containers
 - 🤖 **Agent skill included** — let agents [reason about their own usage](#agent-skill)
