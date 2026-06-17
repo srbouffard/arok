@@ -111,7 +111,9 @@ jobs:
           TMP_PREFIX=$(mktemp -d)
           TMP_STATE=$(mktemp -d)
           TMP_COPILOT=$(mktemp -d)
-          ./install.sh --prefix "$TMP_PREFIX"
+          
+          # Test from-source installation (since we're in a git checkout)
+          ./install.sh --prefix "$TMP_PREFIX" --from-source
           
           # Verify binary installed
           test -f "$TMP_PREFIX/arok"

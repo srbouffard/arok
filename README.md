@@ -26,15 +26,25 @@ The CLI provides:
 
 ## Installation
 
-Install from this repository:
+**Option 1: Install from GitHub releases** (recommended for users):
 
 ```bash
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/srbouffard/arok/main/install.sh | bash
 ```
 
-This builds the binary from source and installs to `~/.local/bin` by default.
+This downloads the latest pre-built binary for your platform.
 
-Then configure Copilot CLI hooks:
+**Option 2: Build from source** (for developers):
+
+```bash
+git clone https://github.com/srbouffard/arok.git
+cd arok
+./install.sh --from-source
+```
+
+Requires Go 1.26+ to build.
+
+**Then configure Copilot CLI hooks:**
 
 ```bash
 arok install copilot
@@ -45,12 +55,11 @@ The `install copilot` command:
 - Initializes the state directory and SQLite database
 - Validates that the Copilot CLI will invoke the hooks
 
-Options:
-- `install.sh --prefix DIR` — Install directory (default: `~/.local/bin`)
+**Installation options:**
 - `arok install copilot --state-dir PATH` — Override state directory
 - `arok install copilot --copilot-home PATH` — Override Copilot home directory
 
-To update: re-run `install.sh` to refresh the binary. Hook config persists across updates.
+**To update:** Re-run the installation command to get the latest version.
 
 ## State directory
 
