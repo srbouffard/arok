@@ -183,8 +183,11 @@ arok install copilot --state-dir /shared/arok
 ```
 
 ```bash
-# 2. Mount /shared/arok into the container (Docker example)
-docker run -v /shared/arok:/shared/arok ...
+# 2. Mount /shared/arok into the container (Multipass or LXD)
+multipass mount /shared/arok <instance>:/shared/arok
+
+# or with LXD
+lxc config device add <container> arok-state disk source=/shared/arok path=/shared/arok
 ```
 
 ```bash
