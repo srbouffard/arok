@@ -3,6 +3,7 @@ package session
 const (
 	CaptureStateFinal       = "final"
 	CaptureStateProvisional = "provisional"
+	CaptureStateBestEffort  = "best_effort" // reconcile exhausted; best data available
 	UsageSourceShutdown     = "session.shutdown.modelMetrics"
 	HarnessCopilotCLI       = "copilot-cli"
 )
@@ -116,6 +117,7 @@ type Overview struct {
 	TotalSessions         int64
 	FinalSessions         int64
 	ProvisionalSessions   int64
+	BestEffortSessions    int64
 	TotalInputTokens      int64
 	TotalOutputTokens     int64
 	TotalCacheReadTokens  int64

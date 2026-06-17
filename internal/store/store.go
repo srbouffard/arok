@@ -348,6 +348,7 @@ func (s *Store) Overview(since *time.Time, limit int) (sessionpkg.Overview, erro
 		SELECT COUNT(*),
 		       COALESCE(SUM(CASE WHEN capture_state = 'final' THEN 1 ELSE 0 END), 0),
 		       COALESCE(SUM(CASE WHEN capture_state = 'provisional' THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN capture_state = 'best_effort' THEN 1 ELSE 0 END), 0),
 		       COALESCE(SUM(total_input_tokens), 0),
 		       COALESCE(SUM(COALESCE(total_output_tokens, assistant_output_tokens, 0)), 0),
 		       COALESCE(SUM(total_cache_read_tokens), 0),
@@ -361,6 +362,7 @@ func (s *Store) Overview(since *time.Time, limit int) (sessionpkg.Overview, erro
 		&overview.TotalSessions,
 		&overview.FinalSessions,
 		&overview.ProvisionalSessions,
+		&overview.BestEffortSessions,
 		&overview.TotalInputTokens,
 		&overview.TotalOutputTokens,
 		&overview.TotalCacheReadTokens,
@@ -400,7 +402,15 @@ func (s *Store) CountSessions() (int64, error) {
 
 func (s *Store) CountNonFinalSessions() (int64, error) {
 	var count int64
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE capture_state != ?`, sessionpkg.CaptureStateFinal).Scan(&count); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE capture_state = ?`, sessionpkg.CaptureStateProvisional).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (s *Store) CountBestEffortSessions() (int64, error) {
+	var count int64
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE capture_state = ?`, sessionpkg.CaptureStateBestEffort).Scan(&count); err != nil {
 		return 0, err
 	}
 	return count, nil
@@ -412,7 +422,7 @@ func (s *Store) ListNonFinalSessions(limit int) ([]sessionpkg.SessionListItem, e
 
 func (s *Store) listNonFinalSessions(since *time.Time, limit int) ([]sessionpkg.SessionListItem, error) {
 	where, args := timeWindowWhere(since)
-	args = append([]any{sessionpkg.CaptureStateFinal}, args...)
+	args = append([]any{sessionpkg.CaptureStateProvisional}, args...)
 	args = append(args, limit)
 
 	query := `
@@ -422,7 +432,7 @@ func (s *Store) listNonFinalSessions(since *time.Time, limit int) ([]sessionpkg.
 		       COALESCE(total_output_tokens, assistant_output_tokens, 0),
 		       COALESCE(ended_at, collected_at, '')
 		FROM sessions
-		WHERE capture_state != ?`
+		WHERE capture_state = ?`
 	if where != "" {
 		query += " AND " + strings.TrimPrefix(where, "WHERE ")
 	}

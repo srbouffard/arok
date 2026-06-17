@@ -281,6 +281,14 @@ func (a *App) runReconcile(args []string) error {
 	}
 	defer db.Close()
 
+	// If reconcile exhausted without finding shutdown metrics, mark as best_effort
+	// rather than leaving it provisional forever. This is expected for sessions that
+	// end without emitting session.shutdown.modelMetrics (e.g. abrupt exits).
+	reconcileExhausted := summary.CaptureState != sessionpkg.CaptureStateFinal
+	if reconcileExhausted {
+		summary.CaptureState = sessionpkg.CaptureStateBestEffort
+	}
+
 	if err := db.UpsertSession(summary); err != nil {
 		return err
 	}
@@ -289,8 +297,8 @@ func (a *App) runReconcile(args []string) error {
 		_ = appendLog(config.ReconcileLogPath(stateDir), fmt.Sprintf("%s cleanup failed for %s: %v\n", time.Now().UTC().Format(time.RFC3339Nano), sessionID, err))
 	}
 
-	if summary.CaptureState != sessionpkg.CaptureStateFinal {
-		message := fmt.Sprintf("%s reconcile exhausted before final totals for %s\n", time.Now().UTC().Format(time.RFC3339Nano), sessionID)
+	if reconcileExhausted {
+		message := fmt.Sprintf("%s reconcile exhausted before final totals for %s; marked best_effort\n", time.Now().UTC().Format(time.RFC3339Nano), sessionID)
 		_ = appendLog(config.ReconcileLogPath(stateDir), message)
 		return errors.New(strings.TrimSpace(message))
 	}
@@ -527,10 +535,11 @@ func (a *App) runAnalyzeOverview(args []string) error {
 		return err
 	}
 
-	fmt.Fprintf(a.stdout, "sessions\t%d\nfinal_sessions\t%d\nprovisional_sessions\t%d\ntotal_input_tokens\t%d\ntotal_output_tokens\t%d\ntotal_cache_read_tokens\t%d\ntotal_cache_write_tokens\t%d\ntotal_reasoning_tokens\t%d\n\n",
+	fmt.Fprintf(a.stdout, "sessions\t%d\nfinal_sessions\t%d\nprovisional_sessions\t%d\nbest_effort_sessions\t%d\ntotal_input_tokens\t%d\ntotal_output_tokens\t%d\ntotal_cache_read_tokens\t%d\ntotal_cache_write_tokens\t%d\ntotal_reasoning_tokens\t%d\n\n",
 		overview.TotalSessions,
 		overview.FinalSessions,
 		overview.ProvisionalSessions,
+		overview.BestEffortSessions,
 		overview.TotalInputTokens,
 		overview.TotalOutputTokens,
 		overview.TotalCacheReadTokens,
@@ -599,6 +608,7 @@ func (a *App) runDoctor(args []string) error {
 	var (
 		sessionCount int64
 		nonFinals    int64
+		bestEffort   int64
 	)
 	if dbErr == nil {
 		db, err := store.Open(stateDir)
@@ -614,14 +624,19 @@ func (a *App) runDoctor(args []string) error {
 		if err != nil {
 			return err
 		}
+		bestEffort, err = db.CountBestEffortSessions()
+		if err != nil {
+			return err
+		}
 	}
 
-	fmt.Fprintf(a.stdout, "state_dir\t%s\ndatabase\t%s\ncopilot_hook\t%s\nsessions\t%d\nnon_final_sessions\t%d\n",
+	fmt.Fprintf(a.stdout, "state_dir\t%s\ndatabase\t%s\ncopilot_hook\t%s\nsessions\t%d\nnon_final_sessions\t%d\nbest_effort_sessions\t%d\n",
 		stateDir,
 		statusString(dbErr == nil),
 		statusString(cfgErr == nil),
 		sessionCount,
 		nonFinals,
+		bestEffort,
 	)
 	if dbErr != nil || cfgErr != nil {
 		return errors.New("doctor found missing installation pieces")
