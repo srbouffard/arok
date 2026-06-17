@@ -44,7 +44,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Detect if running from file or piped to bash
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+  ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+  ROOT_DIR="$PWD"
+fi
+
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
