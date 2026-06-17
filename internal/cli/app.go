@@ -66,10 +66,18 @@ func (a *App) Run(args []string) error {
 }
 
 func (a *App) runInstall(args []string) error {
-	if len(args) == 0 || args[0] != "copilot" {
-		return errors.New("usage: arok install copilot [--state-dir ABSOLUTE_PATH] [--copilot-home PATH] [--binary-path PATH] [--print-config]")
+	if len(args) == 0 {
+		return errors.New("usage: arok install <harness> [flags]\nAvailable harnesses: copilot")
 	}
+	switch args[0] {
+	case "copilot":
+		return a.runInstallCopilot(args[1:])
+	default:
+		return fmt.Errorf("unknown harness %q — available: copilot", args[0])
+	}
+}
 
+func (a *App) runInstallCopilot(args []string) error {
 	fs := flag.NewFlagSet("install copilot", flag.ContinueOnError)
 	fs.SetOutput(a.stderr)
 	var (
@@ -82,7 +90,7 @@ func (a *App) runInstall(args []string) error {
 	fs.StringVar(&copilotHome, "copilot-home", copilotHome, "Override the Copilot home directory.")
 	fs.StringVar(&binaryPath, "binary-path", "", "Override the binary path written into the Copilot hook config.")
 	fs.BoolVar(&printConfig, "print-config", false, "Print the generated Copilot hook config instead of installing it.")
-	if err := fs.Parse(args[1:]); err != nil {
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
@@ -146,11 +154,15 @@ func (a *App) runCapture(args []string) error {
 
 	switch harness {
 	case "copilot":
+		return a.runCaptureCopilot(eventName, stateDirOverride, payloadFile, noReconcile)
 	case "vscode":
 		return a.runCaptureVSCode(eventName, stateDirOverride, payloadFile)
 	default:
 		return fmt.Errorf("unsupported harness %q", harness)
 	}
+}
+
+func (a *App) runCaptureCopilot(eventName, stateDirOverride, payloadFile string, noReconcile bool) error {
 	if eventName == "" {
 		return errors.New("missing --event")
 	}
