@@ -174,19 +174,26 @@ Override: `export AROK_STATE_DIR=/absolute/path`
 
 Because every session records `hostname`, `arok` works naturally across multiple machines or containerized agents all writing to a shared database. You can see which host a session came from and query usage per-host.
 
-**Setup:** mount a shared directory into your container and point `AROK_STATE_DIR` at it:
+**Setup:**
 
 ```bash
-# On the host — install arok once
+# 1. On the host — install and initialise the shared state directory
 curl -fsSL https://raw.githubusercontent.com/srbouffard/arok/main/install.sh | bash
 arok install copilot --state-dir /shared/arok
-
-# In each container — set the state dir to the same mount
-export AROK_STATE_DIR=/shared/arok
-arok capture --harness copilot --event sessionEnd  # called by the hook automatically
 ```
 
-Sessions from all containers land in a single `usage.db`. Query across them:
+```bash
+# 2. Mount /shared/arok into the container (Docker example)
+docker run -v /shared/arok:/shared/arok ...
+```
+
+```bash
+# 3. Inside the container — install arok and point it at the shared state
+curl -fsSL https://raw.githubusercontent.com/srbouffard/arok/main/install.sh | bash
+arok install copilot --state-dir /shared/arok
+```
+
+From this point the hooks fire automatically on session end. Sessions from all containers land in a single `usage.db` on the host.
 
 ```
 $ arok query sessions --latest 10
