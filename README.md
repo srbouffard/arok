@@ -98,6 +98,8 @@ ae5514bb...   copilot-cli     final  main    ~/projects/myapi    16,890K   165,9
 
 ## Captured metrics
 
+**Token usage**
+
 | Metric | CLI | VS Code |
 | --- | --- | --- |
 | Input tokens | ✅ | ✅ (where available) |
@@ -107,8 +109,20 @@ ae5514bb...   copilot-cli     final  main    ~/projects/myapi    16,890K   165,9
 | Reasoning tokens | ✅ | — |
 | Per-model breakdown | ✅ | ✅ |
 | Interaction count | ✅ | ✅ |
-| Git repo / branch / commit | ✅ | ✅ |
+
+**Session metadata**
+
+| Metadata | CLI | VS Code |
+| --- | --- | --- |
+| Hostname | ✅ | ✅ |
+| Working directory | ✅ | ✅ |
+| Git remote URL | ✅ | ✅ |
+| Git branch | ✅ | ✅ |
+| Git commit (HEAD) | ✅ | ✅ |
+| Worktree root | ✅ | ✅ |
 | Session timestamps | ✅ | ✅ |
+
+Hostname capture makes `arok` useful for **containerized or remote agent sessions** — see [Multi-host and containers](#multi-host-and-containers) below.
 
 ---
 
@@ -153,6 +167,37 @@ Override: `export AROK_STATE_DIR=/absolute/path`
 | `hooks/` | Generated hook configs |
 | `logs/` | Capture and error logs |
 | `reconcile/` | Temporary reconcile state |
+
+---
+
+## Multi-host and containers
+
+Because every session records `hostname`, `arok` works naturally across multiple machines or containerized agents all writing to a shared database. You can see which host a session came from and query usage per-host.
+
+**Setup:** mount a shared directory into your container and point `AROK_STATE_DIR` at it:
+
+```bash
+# On the host — install arok once
+curl -fsSL https://raw.githubusercontent.com/srbouffard/arok/main/install.sh | bash
+arok install copilot --state-dir /shared/arok
+
+# In each container — set the state dir to the same mount
+export AROK_STATE_DIR=/shared/arok
+arok capture --harness copilot --event sessionEnd  # called by the hook automatically
+```
+
+Sessions from all containers land in a single `usage.db`. Query across them:
+
+```
+$ arok query sessions --latest 10
+
+SESSION       HARNESS      HOST         BRANCH  INPUT    OUTPUT   ENDED_AT
+ae5514bb...   copilot-cli  agent-1      main    8,431K   74,312   2026-06-17T04:39Z
+b91f3c2a...   copilot-cli  agent-2      feat    3,102K   28,940   2026-06-17T05:12Z
+d44c8e01...   copilot-cli  agent-1      main    1,201K   12,001   2026-06-17T06:03Z
+```
+
+The state directory is safe for concurrent writes — SQLite's WAL mode handles multiple writers.
 
 ---
 
