@@ -1,5 +1,7 @@
 package session
 
+import "time"
+
 const (
 	CaptureStateFinal       = "final"
 	CaptureStateProvisional = "provisional"
@@ -124,11 +126,20 @@ type Overview struct {
 	TotalCacheReadTokens  int64
 	TotalCacheWriteTokens int64
 	TotalReasoningTokens  int64
+	TopHosts              []GroupTotal
 	TopRepos              []GroupTotal
 	TopBranches           []GroupTotal
 	TopHarnesses          []GroupTotal
 	TopModels             []ModelTotal
 	MissingFinals         []SessionListItem
+}
+
+// SessionFilter constrains ListSessionsFiltered results.
+type SessionFilter struct {
+	Host   string
+	Repo   string
+	Branch string
+	Since  *time.Time
 }
 
 func PtrInt64(v int64) *int64 {
