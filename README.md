@@ -41,6 +41,36 @@ git clone https://github.com/srbouffard/arok.git && cd arok
 
 ## What you can measure
 
+**Overview analytics:**
+
+```
+$ arok analyze overview --since 168h
+
+sessions                  23
+final_sessions            22
+provisional_sessions       0
+best_effort_sessions       1
+total_input_tokens    16,950,294
+total_output_tokens      167,326
+total_cache_read_tokens 15,615,328
+total_reasoning_tokens    45,729
+
+top hosts
+KEY                SESSIONS  INPUT      OUTPUT
+sbouffard          21        16,890K    165,979
+default-workspace   2             0        466
+
+top repos
+KEY                                        SESSIONS  INPUT      OUTPUT
+https://github.com/myorg/api               12        8,431,205  74,312
+https://github.com/myorg/frontend           7        3,102,881  28,940
+
+top branches
+KEY     SESSIONS  INPUT      OUTPUT
+main    15        14,210,000  142,100
+feat     8         2,740,294   25,226
+```
+
 **Usage across your repos (last 7 days):**
 
 ```
@@ -50,6 +80,16 @@ KEY                                        SESSIONS  INPUT      OUTPUT   CACHE_R
 https://github.com/myorg/api               12        8,431,205  74,312   7,120,450    24,193
 https://github.com/myorg/frontend           7        3,102,881  28,940   2,890,120     8,421
 https://github.com/myorg/infra              4          981,440  12,201     901,882         0
+```
+
+**Usage per host:**
+
+```
+$ arok query hosts
+
+KEY                SESSIONS  INPUT      OUTPUT   CACHE_READ   REASONING
+sbouffard          51        18,031,907  186,763  15,615,328   45,729
+default-workspace   1                0      466           0        0
 ```
 
 **Per-model breakdown:**
@@ -63,17 +103,19 @@ gpt-5.4              5         3,976,145  59,354   3,805,696   24,833
 claude-haiku-4.5     3            65,492   5,918      33,307      408
 ```
 
-**Overview analytics:**
+**Filter sessions by host, repo, or branch:**
 
 ```
-$ arok analyze overview --since 168h
+$ arok query sessions --branch main --since 168h
 
-sessions               23
-total_input_tokens     16,950,294
-total_output_tokens       167,326
-total_cache_read_tokens 15,615,328
-total_reasoning_tokens     45,729
+SESSION       HARNESS         STATE  HOST       BRANCH  INPUT     OUTPUT  ENDED_AT
+ae5514bb...   copilot-cli     final  sbouffard  main    16,890K   165,979  2026-06-17T04:39Z
+2666a4d1...   copilot-vscode  final  sbouffard  main     24,258       368  2026-06-17T12:47Z
+
+totals  sessions=7  input=16,950,294  output=166,860  cache_read=15,615,328  reasoning=45,729
 ```
+
+Flags can be combined: `--host`, `--repo`, `--branch`, `--since` all filter the same result set.
 
 **Recent sessions:**
 
@@ -133,15 +175,19 @@ Hostname capture makes `arok` useful for **containerized or remote agent session
 | `arok install copilot` | Install Copilot hook configuration |
 | `arok capture` | Ingest hook payloads (called automatically) |
 | `arok reconcile` | Background reconciliation (called automatically) |
-| `arok query sessions` | List recent sessions |
+| `arok query sessions` | List recent sessions (`--host`, `--repo`, `--branch`, `--since` to filter) |
+| `arok query hosts` | Usage grouped by host |
 | `arok query repos` | Usage grouped by repository |
-| `arok query models` | Usage grouped by model |
 | `arok query branches` | Usage grouped by branch |
-| `arok analyze overview` | Aggregate analytics |
+| `arok query models` | Usage grouped by model |
+| `arok query worktrees` | Usage grouped by worktree |
+| `arok query harnesses` | Usage grouped by harness |
+| `arok analyze overview` | Aggregate analytics with per-host, per-repo, per-branch, per-model breakdowns |
 | `arok doctor` | Validate installation and database health |
+| `arok update` | Self-update to the latest release |
 | `arok version` | Show version |
 
-All `query` and `analyze` commands accept `--since <duration>` (e.g. `24h`, `168h`, `720h`).
+All `query` and `analyze` commands accept `--since <duration>` (e.g. `24h`, `168h`, `720h`) and `--limit N`.
 
 ---
 
