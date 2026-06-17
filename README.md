@@ -1,116 +1,147 @@
 # arok
 
-`arok` is a local-first CLI for capturing and querying LLM and agent usage across harnesses. The first production slice in this repo supports **GitHub Copilot CLI** with:
+**Agent Resource Observation Kit** — a local-first CLI for capturing and querying LLM and agent usage.
 
-1. `sessionEnd`-driven capture
-2. SQLite as the canonical local store
-3. git metadata enrichment from `cwd`
-4. idempotent session upserts for resumed Copilot sessions
-5. detached post-hook reconciliation when `session.shutdown.modelMetrics` lands after the hook returns
+Version 1 provides production-ready **GitHub Copilot CLI** support with:
 
-## Current scope
+1. Automatic session-end capture via Copilot hooks
+2. SQLite-backed local storage for all usage data
+3. Git metadata enrichment (repo, branch, commit)
+4. Idempotent session tracking for resumed sessions
+5. Autonomous reconciliation for late-arriving usage totals
+6. Focused query and analytics commands
 
-This repository now contains a production-oriented Go implementation for the first Copilot vertical slice and the validated JavaScript POC under `poc/`.
+## Features
 
-The production CLI currently provides:
+The CLI provides:
 
 | Command | Purpose |
 | --- | --- |
-| `arok install copilot` | Generate and install the Copilot hook config that points at the installed `arok` binary |
-| `arok capture --harness copilot --event sessionEnd` | Ingest one Copilot hook payload from stdin or a file |
-| `arok reconcile --harness copilot` | Retry a known session log to upgrade provisional captures |
-| `arok query ...` | Focused session and grouped usage reports |
-| `arok analyze ...` | Lightweight diagnostics and usage discovery |
-| `arok doctor` | Validate state and Copilot hook installation |
+| `arok install copilot` | Install Copilot hook configuration |
+| `arok capture` | Ingest hook payloads (called automatically by hooks) |
+| `arok reconcile` | Upgrade provisional captures when final totals arrive |
+| `arok query` | Session and grouped usage reports |
+| `arok analyze` | Usage analytics and diagnostics |
+| `arok doctor` | Validate installation and database health |
 
-## Build and test
+## Installation
 
-`Makefile` is the main entrypoint:
-
-```bash
-make build
-make test
-make lint
-make fmt
-make check
-```
-
-## Install from this checkout
-
-The repo bootstrap flow builds the Go binary from source and installs it to `~/.local/bin` by default.
+Install from this repository:
 
 ```bash
 ./install.sh
 ```
 
-Useful options:
+This builds the binary from source and installs to `~/.local/bin` by default.
 
-```bash
-./install.sh --state-dir /absolute/shared/arok-state
-./install.sh --prefix "$HOME/.local/bin" --copilot-home "$HOME/.copilot"
-./install.sh --no-copilot
-```
+Options:
+- `--prefix DIR` — Install directory (default: `~/.local/bin`)
+- `--state-dir PATH` — Override state directory for hook config
+- `--copilot-home PATH` — Override Copilot home directory
+- `--no-copilot` — Skip Copilot hook setup
 
-Re-running `install.sh` is the supported update path for this checkout: it refreshes the installed binary and rewrites the Copilot hook config without wiping collected state.
+To update: re-run `install.sh`. It refreshes the binary and hook config without wiping data.
 
-## State layout
+## State directory
 
-By default `arok` uses:
-
+Default location:
 ```bash
 ${XDG_STATE_HOME:-$HOME/.local/state}/arok
 ```
 
-You can override that with:
-
+Override with:
 ```bash
-AROK_STATE_DIR=/absolute/path
+export AROK_STATE_DIR=/absolute/path
 ```
 
-The production slice writes:
+Contents:
 
 | Path | Purpose |
 | --- | --- |
-| `usage.db` | Canonical SQLite session store |
-| `hooks/` | Generated hook config fragments |
-| `logs/` | Hook capture log, ingest failures, and reconcile logs |
-| `reconcile/` | Temporary payload snapshots for detached reconciliation |
+| `usage.db` | SQLite database with all session data |
+| `hooks/` | Generated hook configurations |
+| `logs/` | Capture events and error logs |
+| `reconcile/` | Temporary files for background reconciliation |
 
-Mounted/shared state directories are supported as long as the override path is absolute.
+Shared mounted directories are supported for multi-host deployments.
 
-## Copilot flow
+## How it works
 
-The installed Copilot hook runs:
+When a Copilot session ends, the installed hook automatically captures:
 
-```bash
-arok capture --harness copilot --event sessionEnd
-```
+1. Session ID and timestamps
+2. Token usage (input, output, cache, reasoning)
+3. Model and sub-agent breakdowns
+4. Git context (repo, branch, commit)
+5. Tool execution counts
 
-`arok` then:
+The CLI:
+- Reads Copilot's local `events.jsonl` session log
+- Enriches with git metadata from the working directory
+- Stores normalized data in SQLite
+- Handles late-arriving usage totals via background reconciliation
 
-1. parses the raw hook payload
-2. resolves the local Copilot `events.jsonl` session log
-3. enriches repo metadata from `cwd` using local git inspection
-4. persists a normalized session row in SQLite
-5. briefly retries for `session.shutdown.modelMetrics`
-6. if needed, schedules detached reconciliation to upgrade the same session row later
+Resumed sessions (via `--continue` or `--resume`) update the same logical session record.
 
-Authoritative overall totals come from `session.shutdown.modelMetrics` when present. If they are not visible yet, `arok` stores a provisional fallback based on assistant-message output tokens and later upgrades that same logical session.
+## Usage examples
 
-## Query examples
-
+List recent sessions:
 ```bash
 arok query sessions --latest 10
+```
+
+Show session details:
+```bash
 arok query sessions --session-id <session-id>
+```
+
+Usage by repository (last 7 days):
+```bash
 arok query repos --since 168h
+```
+
+Model breakdown (last 24 hours):
+```bash
 arok query models --since 24h
+```
+
+Overview analytics:
+```bash
 arok analyze overview --since 168h
-arok analyze missing-finals
+```
+
+Check installation:
+```bash
 arok doctor
 ```
 
-## Notes
+## Development
 
-1. The first production slice is intentionally small and low-dependency.
-2. The Copilot implementation keeps harness-specific parsing inside the CLI rather than in external adapter scripts.
-3. The POC remains in `poc/` as the validated reference for the behavior this implementation preserves.
+Build and test:
+```bash
+make build    # Build binary
+make test     # Run tests
+make lint     # Run linters
+make check    # Full verification
+```
+
+## Design
+
+`arok` is built with:
+- **Go** — single-binary CLI with minimal dependencies
+- **modernc.org/sqlite** — pure-Go SQLite driver (no cgo)
+- **Local-first** — all data stays on your machine
+- **Hook-driven** — automatic capture, no manual tracking
+
+The POC in `poc/` contains the validated JavaScript prototype that informed this implementation.
+
+## Roadmap
+
+**Version 2** will add:
+- OpenCode harness support
+- Binary release downloads
+- Prompt-cache savings estimates
+
+## License
+
+See LICENSE file for details.

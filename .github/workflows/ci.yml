@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, initial-implementation ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.26.x', '1.27.x']
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: make test
+
+      - name: Build binary
+        run: make build
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Check formatting
+        run: make fmt-check
+
+      - name: Validate install script
+        run: bash -n install.sh
+
+  check:
+    name: Full Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run full check
+        run: make check
+
+      - name: Test installation
+        run: |
+          TMP_PREFIX=$(mktemp -d)
+          TMP_STATE=$(mktemp -d)
+          TMP_COPILOT=$(mktemp -d)
+          ./install.sh \
+            --prefix "$TMP_PREFIX" \
+            --state-dir "$TMP_STATE" \
+            --copilot-home "$TMP_COPILOT"
+          
+          # Verify binary installed
+          test -f "$TMP_PREFIX/arok"
+          test -x "$TMP_PREFIX/arok"
+          
+          # Verify hook config generated
+          test -f "$TMP_COPILOT/hooks/arok-copilot.json"
+          
+          # Verify state directory created
+          test -d "$TMP_STATE"
+          test -f "$TMP_STATE/usage.db"
+          
+          # Verify binary runs
+          "$TMP_PREFIX/arok" version
+          "$TMP_PREFIX/arok" doctor --state-dir "$TMP_STATE" --copilot-home "$TMP_COPILOT"
