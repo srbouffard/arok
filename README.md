@@ -8,6 +8,7 @@
   <a href="https://github.com/srbouffard/arok/actions/workflows/codeql.yml"><img src="https://github.com/srbouffard/arok/actions/workflows/codeql.yml/badge.svg?branch=main" alt="CodeQL"></a>
   <img src="https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white" alt="Go version">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
+  <a href="https://skills.sh/srbouffard/arok"><img src="https://skills.sh/b/srbouffard/arok" alt="skills.sh"></a>
 </p>
 
 # arok
@@ -285,7 +286,13 @@ The state directory is safe for concurrent writes — SQLite's WAL mode handles 
 **Install via the skills CLI:**
 
 ```bash
-gh skills install srbouffard/arok/skills/analyze-agent-usage
+npx skills add srbouffard/arok
+```
+
+**Or manually clone into your project's skills directory:**
+
+```bash
+cp -r skills/analyze-agent-usage .agents/skills/
 ```
 
 The skill lives in [`skills/analyze-agent-usage/`](skills/analyze-agent-usage/) and follows the [agentskills.io](https://agentskills.io) specification.
