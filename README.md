@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/arok_logo.png" alt="arok logo" width="360" />
+  <img src="assets/arok_logo.png" alt="arok logo" width="600" />
 </p>
 
 <p align="center">
