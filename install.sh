@@ -69,8 +69,8 @@ case "$ARCH" in
     ;;
 esac
 
-# Build from source if requested or if we're in a git checkout without releases
-if [[ "$FROM_SOURCE" -eq 1 ]] || [[ -d "$ROOT_DIR/.git" && ! -f "$ROOT_DIR/dist/arok" ]]; then
+# Build from source if requested or if we're in the arok git checkout
+if [[ "$FROM_SOURCE" -eq 1 ]] || [[ -d "$ROOT_DIR/.git" && -f "$ROOT_DIR/go.mod" && grep -q "github.com/srbouffard/arok" "$ROOT_DIR/go.mod" 2>/dev/null ]]; then
   command -v go >/dev/null 2>&1 || {
     echo "Error: Building from source requires Go." >&2
     echo "Install Go or remove --from-source to download a release binary." >&2
