@@ -16,6 +16,13 @@
 
 `arok` captures usage from GitHub Copilot (CLI and VS Code) automatically via hooks, stores everything in a local SQLite database, and gives you per-session, per-repo, per-model breakdowns — no accounts, no telemetry, no cloud.
 
+- 🔒 **Fully local** — SQLite on disk, zero cloud, zero accounts
+- ⚡ **Zero-config capture** — hooks fire automatically on session end
+- 🖥️ **CLI + VS Code** — one install covers both Copilot harnesses
+- 🔍 **Rich filtering** — query by host, repo, branch, model, or time window
+- 🌐 **Multi-host ready** — hostname on every session; mount a shared state dir across containers
+- 🤖 **Agent skill included** — let agents [reason about their own usage](#agent-skill)
+
 ---
 
 ## Installation
@@ -266,6 +273,24 @@ d44c8e01...   copilot-cli  agent-1      main    1,201K   12,001   2026-06-17T06:
 ```
 
 The state directory is safe for concurrent writes — SQLite's WAL mode handles multiple writers.
+
+---
+
+## Agent Skill
+
+`arok` ships an installable agent skill — `analyze-agent-usage` — that lets any Copilot agent reason about AI resource consumption directly. Once installed, agents can answer questions like:
+
+- *"How many tokens did we use on the auth feature this week?"*
+- *"Show me usage breakdown by repo for the last sprint."*
+- *"Which model consumed the most tokens on this branch?"*
+
+**Install via the skills CLI:**
+
+```bash
+gh skills install srbouffard/arok/skills/analyze-agent-usage
+```
+
+The skill lives in [`skills/analyze-agent-usage/`](skills/analyze-agent-usage/) and follows the [agentskills.io](https://agentskills.io) specification.
 
 ---
 
