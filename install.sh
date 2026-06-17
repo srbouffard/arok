@@ -74,7 +74,12 @@ if [[ "$FROM_SOURCE" -eq 1 ]] || [[ -d "$ROOT_DIR/.git" && ! -f "$ROOT_DIR/dist/
   echo "Building from source..."
   (
     cd "$ROOT_DIR"
-    GOFLAGS='' go build -o "$TMP_DIR/arok" ./cmd/arok
+    VERSION="${VERSION:-dev}"
+    COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    GOFLAGS='' go build \
+      -ldflags "-X github.com/srbouffard/arok/internal/version.Version=${VERSION} -X github.com/srbouffard/arok/internal/version.Commit=${COMMIT} -X github.com/srbouffard/arok/internal/version.Date=${DATE}" \
+      -o "$TMP_DIR/arok" ./cmd/arok
   )
   install -m 0755 "$TMP_DIR/arok" "$PREFIX_DIR/arok"
   
