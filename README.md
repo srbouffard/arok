@@ -8,6 +8,7 @@
   <a href="https://github.com/srbouffard/arok/actions/workflows/codeql.yml"><img src="https://github.com/srbouffard/arok/actions/workflows/codeql.yml/badge.svg?branch=main" alt="CodeQL"></a>
   <img src="https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white" alt="Go version">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
+  <a href="https://skills.sh/srbouffard/arok"><img src="https://skills.sh/b/srbouffard/arok" alt="skills.sh"></a>
 </p>
 
 # arok
@@ -15,6 +16,11 @@
 **Agent Resource Observation Kit** — local-first observability for AI coding tools.
 
 `arok` captures usage from GitHub Copilot (CLI and VS Code) automatically via hooks, stores everything in a local SQLite database, and gives you per-session, per-repo, per-model breakdowns — no accounts, no telemetry, no cloud.
+
+- 🔒 **No cloud, no accounts** — everything stays on disk in a local SQLite database
+- 📊 **Know what your agents actually cost** — token totals per session, repo, branch, model, and host — queryable in seconds
+- 🌐 **Aggregate across containerized agents** — every session is stamped with hostname; point multiple agents at a shared state dir and query fleet-wide consumption in one place
+- 🤖 **Agents can reason about their own usage** — an installable skill lets agents answer "how many tokens did this feature take?" without leaving the conversation
 
 ---
 
@@ -266,6 +272,24 @@ d44c8e01...   copilot-cli  agent-1      main    1,201K   12,001   2026-06-17T06:
 ```
 
 The state directory is safe for concurrent writes — SQLite's WAL mode handles multiple writers.
+
+---
+
+## Agent Skill
+
+`arok` ships an installable agent skill — `analyze-agent-usage` — that lets any Copilot agent reason about AI resource consumption directly. Once installed, agents can answer questions like:
+
+- *"How many tokens did we use on the auth feature this week?"*
+- *"Show me usage breakdown by repo for the last sprint."*
+- *"Which model consumed the most tokens on this branch?"*
+
+**Install via the skills CLI:**
+
+```bash
+npx skills add srbouffard/arok
+```
+
+The skill lives in [`skills/analyze-agent-usage/`](skills/analyze-agent-usage/) and follows the [agentskills.io](https://agentskills.io) specification.
 
 ---
 
