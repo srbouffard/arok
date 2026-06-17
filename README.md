@@ -2,19 +2,9 @@
 
 **Agent Resource Observation Kit** — a local-first CLI for capturing and querying LLM and agent usage.
 
-Version 1 provides production-ready **GitHub Copilot** support across the CLI and VS Code with:
-
-1. Automatic Copilot CLI session-end capture via hooks
-2. Automatic VS Code Copilot stop-hook capture plus historical session import
-3. SQLite-backed local storage for all usage data
-4. Git metadata enrichment (repo, branch, commit)
-5. Idempotent session tracking for resumed sessions
-6. Autonomous reconciliation for late-arriving usage totals
-7. Focused query and analytics commands
+`arok` automatically captures **GitHub Copilot** usage across the CLI and VS Code, storing everything in a local SQLite database with git metadata enrichment. No accounts, no telemetry, no cloud.
 
 ## Features
-
-The CLI provides:
 
 | Command | Purpose |
 | --- | --- |
@@ -25,17 +15,44 @@ The CLI provides:
 | `arok analyze` | Usage analytics and diagnostics |
 | `arok doctor` | Validate installation and database health |
 
+**What gets captured:**
+
+- Session ID and timestamps
+- Token usage (input, output, cache read/write, reasoning)
+- Model and sub-agent breakdowns per session
+- Git context (repo, branch, commit) from the working directory
+- Tool execution counts
+
 ## Installation
 
-**Option 1: Install from GitHub releases** (recommended for users):
+**Install from GitHub releases:**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/srbouffard/arok/main/install.sh | bash
 ```
 
-This downloads the latest pre-built binary for your platform.
+**Add to PATH** (if not already present):
 
-**Option 2: Build from source** (for developers):
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+**Configure Copilot hooks:**
+
+```bash
+arok install copilot
+```
+
+This creates `~/.copilot/hooks/arok-copilot.json` with hooks for both Copilot CLI (`sessionEnd`) and VS Code (`Stop`), initializes the state directory, and opens the SQLite database.
+
+**Import existing VS Code sessions:**
+
+```bash
+arok capture --harness vscode --event scan
+```
+
+**Build from source** (requires Go 1.26+):
 
 ```bash
 git clone https://github.com/srbouffard/arok.git
@@ -43,41 +60,55 @@ cd arok
 ./install.sh --from-source
 ```
 
-Requires Go 1.26+ to build.
+**Update:** Re-run the install command to get the latest release.
 
-**Add to PATH** (if not already present):
+## Usage
 
+List recent sessions:
 ```bash
-# Add to ~/.bashrc or ~/.zshrc
-export PATH="$HOME/.local/bin:$PATH"
-
-# Or for current session only
-export PATH="$HOME/.local/bin:$PATH"
+arok query sessions --latest 20
 ```
 
-**Then configure Copilot CLI hooks:**
-
+Show full session detail:
 ```bash
-arok install copilot
+arok query sessions --session-id <session-id>
 ```
 
-The `install copilot` command:
-- Creates hook configuration at `~/.copilot/hooks/arok-copilot.json`
-- Installs hooks for both Copilot CLI (`sessionEnd`) and VS Code (`Stop`)
-- Initializes the state directory and SQLite database
-- Validates that the Copilot CLI will invoke the hooks
-
-To import existing VS Code Copilot sessions:
-
+Usage by repository:
 ```bash
-arok capture --harness vscode --event scan
+arok query repos --since 168h
 ```
 
-**Installation options:**
-- `arok install copilot --state-dir PATH` — Override state directory
-- `arok install copilot --copilot-home PATH` — Override Copilot home directory
+Model breakdown:
+```bash
+arok query models --since 24h
+```
 
-**To update:** Re-run the installation command to get the latest version.
+Overview analytics:
+```bash
+arok analyze overview --since 168h
+```
+
+Check installation health:
+```bash
+arok doctor
+```
+
+## How it works
+
+### Copilot CLI
+
+When a Copilot CLI session ends, the `sessionEnd` hook fires. arok reads the local `events.jsonl` session log, extracts token totals and model usage, enriches with git metadata, and writes a normalized record to SQLite. If usage totals aren't available yet (common when the session ends before the model finishes reporting), a background reconcile process retries until the data arrives.
+
+### VS Code Copilot
+
+The `Stop` hook fires after each turn. arok reads the session's `chatSessions` JSONL file from VS Code's local workspace storage, replaying the patch-log to reconstruct the final session state with accurate token counts. Workspace folder metadata maps to git context.
+
+Both harnesses write to the same database with the same schema — `arok query` reports across all of them uniformly.
+
+### Resumed sessions
+
+Sessions continued via `--continue` or `--resume` update the same logical record. The session ID is stable across continuations.
 
 ## State directory
 
@@ -91,8 +122,6 @@ Override with:
 export AROK_STATE_DIR=/absolute/path
 ```
 
-Contents:
-
 | Path | Purpose |
 | --- | --- |
 | `usage.db` | SQLite database with all session data |
@@ -102,82 +131,21 @@ Contents:
 
 Shared mounted directories are supported for multi-host deployments.
 
-## How it works
-
-When a Copilot session ends, the installed hook automatically captures:
-
-1. Session ID and timestamps
-2. Token usage (input, output, cache, reasoning)
-3. Model and sub-agent breakdowns
-4. Git context (repo, branch, commit)
-5. Tool execution counts
-
-The CLI:
-- Reads Copilot's local `events.jsonl` session log
-- Enriches with git metadata from the working directory
-- Stores normalized data in SQLite
-- Handles late-arriving usage totals via background reconciliation
-
-Resumed sessions (via `--continue` or `--resume`) update the same logical session record.
-
-## Usage examples
-
-List recent sessions:
-```bash
-arok query sessions --latest 10
-```
-
-Show session details:
-```bash
-arok query sessions --session-id <session-id>
-```
-
-Usage by repository (last 7 days):
-```bash
-arok query repos --since 168h
-```
-
-Model breakdown (last 24 hours):
-```bash
-arok query models --since 24h
-```
-
-Overview analytics:
-```bash
-arok analyze overview --since 168h
-```
-
-Check installation:
-```bash
-arok doctor
-```
-
 ## Development
 
-Build and test:
 ```bash
 make build    # Build binary
 make test     # Run tests
 make lint     # Run linters
-make check    # Full verification
+make check    # Full verification (fmt + vet + test + build)
 ```
 
 ## Design
 
-`arok` is built with:
-- **Go** — single-binary CLI with minimal dependencies
-- **modernc.org/sqlite** — pure-Go SQLite driver (no cgo)
+- **Go** — single-binary CLI with no cgo dependencies
+- **modernc.org/sqlite** — pure-Go SQLite driver
 - **Local-first** — all data stays on your machine
 - **Hook-driven** — automatic capture, no manual tracking
-
-The POC in `poc/` contains the validated JavaScript prototype that informed this implementation.
-
-## Roadmap
-
-**Version 2** will add:
-- OpenCode harness support
-- Binary release downloads
-- Prompt-cache savings estimates
 
 ## License
 
