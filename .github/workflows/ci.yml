@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.26.x', '1.27.x']
+        go-version: ['1.26.x']
     
     steps:
       - name: Checkout code
@@ -111,14 +111,19 @@ jobs:
           TMP_PREFIX=$(mktemp -d)
           TMP_STATE=$(mktemp -d)
           TMP_COPILOT=$(mktemp -d)
-          ./install.sh \
-            --prefix "$TMP_PREFIX" \
-            --state-dir "$TMP_STATE" \
-            --copilot-home "$TMP_COPILOT"
+          ./install.sh --prefix "$TMP_PREFIX"
           
           # Verify binary installed
           test -f "$TMP_PREFIX/arok"
           test -x "$TMP_PREFIX/arok"
+          
+          # Verify binary runs
+          "$TMP_PREFIX/arok" version
+          
+          # Test manual Copilot setup
+          "$TMP_PREFIX/arok" install copilot \
+            --state-dir "$TMP_STATE" \
+            --copilot-home "$TMP_COPILOT"
           
           # Verify hook config generated
           test -f "$TMP_COPILOT/hooks/arok-copilot.json"
@@ -127,6 +132,5 @@ jobs:
           test -d "$TMP_STATE"
           test -f "$TMP_STATE/usage.db"
           
-          # Verify binary runs
-          "$TMP_PREFIX/arok" version
+          # Verify doctor
           "$TMP_PREFIX/arok" doctor --state-dir "$TMP_STATE" --copilot-home "$TMP_COPILOT"

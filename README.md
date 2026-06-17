@@ -19,7 +19,7 @@ The CLI provides:
 | --- | --- |
 | `arok install copilot` | Install Copilot hook configuration |
 | `arok capture` | Ingest hook payloads (called automatically by hooks) |
-| `arok reconcile` | Upgrade provisional captures when final totals arrive |
+| `arok reconcile` | Background reconciliation (called automatically by capture) |
 | `arok query` | Session and grouped usage reports |
 | `arok analyze` | Usage analytics and diagnostics |
 | `arok doctor` | Validate installation and database health |
@@ -34,13 +34,23 @@ Install from this repository:
 
 This builds the binary from source and installs to `~/.local/bin` by default.
 
-Options:
-- `--prefix DIR` — Install directory (default: `~/.local/bin`)
-- `--state-dir PATH` — Override state directory for hook config
-- `--copilot-home PATH` — Override Copilot home directory
-- `--no-copilot` — Skip Copilot hook setup
+Then configure Copilot CLI hooks:
 
-To update: re-run `install.sh`. It refreshes the binary and hook config without wiping data.
+```bash
+arok install copilot
+```
+
+The `install copilot` command:
+- Creates hook configuration at `~/.copilot/hooks/arok-copilot.json`
+- Initializes the state directory and SQLite database
+- Validates that the Copilot CLI will invoke the hooks
+
+Options:
+- `install.sh --prefix DIR` — Install directory (default: `~/.local/bin`)
+- `arok install copilot --state-dir PATH` — Override state directory
+- `arok install copilot --copilot-home PATH` — Override Copilot home directory
+
+To update: re-run `install.sh` to refresh the binary. Hook config persists across updates.
 
 ## State directory
 
