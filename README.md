@@ -16,10 +16,10 @@
 
 `arok` captures usage from GitHub Copilot (CLI and VS Code) automatically via hooks, stores everything in a local SQLite database, and gives you per-session, per-repo, per-model breakdowns — no accounts, no telemetry, no cloud.
 
-- 🔒 **Fully local** — SQLite on disk, zero cloud, zero accounts
-- 🔍 **Rich filtering** — query by host, repo, branch, model, or time window
-- 🌐 **Multi-host ready** — hostname on every session; mount a shared state dir across containers
-- 🤖 **Agent skill included** — let agents [reason about their own usage](#agent-skill)
+- 🔒 **No cloud, no accounts** — everything stays on disk in a local SQLite database
+- 📊 **Know what your agents actually cost** — token totals per session, repo, branch, model, and host — queryable in seconds
+- 🌐 **Aggregate across containerized agents** — every session is stamped with hostname; point multiple agents at a shared state dir and query fleet-wide consumption in one place
+- 🤖 **Agents can reason about their own usage** — an installable skill lets agents answer "how many tokens did this feature take?" without leaving the conversation
 
 ---
 
