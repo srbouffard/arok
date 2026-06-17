@@ -1,15 +1,55 @@
 # AGENTS.md
 
-These instructions apply repo-wide.
+Instructions for AI agents working on this repository.
 
-1. Read `SPEC.md` and the `poc/` directory before making architecture decisions.
-2. Build the production solution from the validated POC learnings; do not regress proven behavior such as end-of-session capture, SQLite persistence, git-based metadata enrichment, and post-hook reconciliation.
-3. Use sub-agents for clearly separable work such as research, code review, and test/lint strategy, but keep implementation coordinated and coherent.
-4. Treat code, tests, linting, build, installer/update flow, and documentation as first-class deliverables. None are optional.
-5. Add and maintain a `Makefile` as the main entrypoint for common workflows. At minimum, provide targets for build, test, lint, and an all-up verification target.
-6. Prefer a small, low-dependency implementation that matches the spec's install and packaging goals.
-7. Keep changes incremental, production-oriented, and well-covered by tests. Add migrations, validation, and error handling where needed.
-8. Update user and developer documentation alongside behavior changes, including install, hook setup, state layout, and reporting workflows.
-9. Use the Multipass instance `default-workspace` for integration tests when that is the most realistic or practical environment.
-10. Before finishing, run the relevant build, lint, and test flows through the Makefile and fix issues rather than documenting them as follow-up work.
-11. If the spec and current code disagree, preserve validated behavior unless you intentionally update the spec and explain why in the repo.
+## Core Principles
+
+**Read first**: `SPEC.md` defines the product requirements and architecture.
+
+**Quality standards**: Code, tests, linting, documentation, and build tooling are all first-class deliverables. None are optional.
+
+**Incremental delivery**: Make changes in small, well-tested increments. Run `make check` before considering work complete.
+
+## Architecture Constraints
+
+- **Small and focused**: Minimize dependencies. Pure-Go implementation with no cgo.
+- **Validated behavior**: Do not regress proven patterns from POC (session-end capture, SQLite persistence, git-based metadata, async reconciliation).
+- **Makefile-driven**: Use `Makefile` for all common workflows (build, test, lint, fmt, check).
+
+## Development Workflow
+
+1. **Before changing behavior**: Read relevant code and tests to understand current implementation.
+2. **Make changes**: Update code, tests, and documentation together.
+3. **Verify quality**: Run `make check` (builds, tests, lints, formats).
+4. **Integration test**: For hook or end-to-end changes, test in Multipass instance `default-workspace`.
+5. **Update docs**: Keep README.md and SPEC.md in sync with implementation.
+
+## Key Files
+
+- **SPEC.md**: Product specification and feature roadmap
+- **README.md**: User-facing documentation
+- **Makefile**: Build and verification entrypoint
+- **cmd/arok/**: CLI entrypoint
+- **internal/**: All implementation packages
+- **poc/**: Original proof-of-concept (reference only, not used in production)
+
+## Testing
+
+- Unit tests: `go test ./...`
+- Integration tests: Use Multipass instance `default-workspace` for realistic hook validation
+- All tests must pass before merging
+
+## Release Process
+
+1. Create branch for changes
+2. Implement, test, document
+3. Open PR and merge to `main`
+4. Tag release: `git tag -a v0.x.y -m "Release v0.x.y"`
+5. Push tag: `git push origin v0.x.y`
+6. GitHub Actions builds and publishes release binaries automatically
+
+## Constraints
+
+- Preserve backward compatibility with existing state directories and databases
+- Schema changes require migration code
+- Breaking changes require major version bump and clear upgrade path
