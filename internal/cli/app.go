@@ -431,7 +431,7 @@ func (a *App) runQuery(args []string) error {
 	switch subcommand {
 	case "sessions":
 		return a.runQuerySessions(args)
-	case "repos", "branches", "worktrees", "harnesses", "tasks":
+	case "repos", "branches", "worktrees", "harnesses", "tasks", "hosts":
 		return a.runQueryGroups(subcommand, args)
 	case "models":
 		return a.runQueryModels(args)
@@ -447,10 +447,18 @@ func (a *App) runQuerySessions(args []string) error {
 		stateDirOverride string
 		sessionID        string
 		latest           int
+		filterHost       string
+		filterRepo       string
+		filterBranch     string
+		sinceRaw         string
 	)
 	fs.StringVar(&stateDirOverride, "state-dir", "", "Override the AROK state directory.")
 	fs.StringVar(&sessionID, "session-id", "", "Show a single session as JSON.")
-	fs.IntVar(&latest, "latest", 10, "How many sessions to list.")
+	fs.IntVar(&latest, "latest", 20, "How many sessions to list.")
+	fs.StringVar(&filterHost, "host", "", "Filter by host name.")
+	fs.StringVar(&filterRepo, "repo", "", "Filter by repo remote.")
+	fs.StringVar(&filterBranch, "branch", "", "Filter by branch name.")
+	fs.StringVar(&sinceRaw, "since", "", "Only include sessions newer than now-duration (e.g. 168h).")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -467,6 +475,52 @@ func (a *App) runQuerySessions(args []string) error {
 			return err
 		}
 		return writeJSON(a.stdout, summary)
+	}
+
+	since, err := parseSince(sinceRaw)
+	if err != nil {
+		return err
+	}
+
+	hasFilter := filterHost != "" || filterRepo != "" || filterBranch != "" || since != nil
+	if hasFilter {
+		filter := sessionpkg.SessionFilter{
+			Host:   filterHost,
+			Repo:   filterRepo,
+			Branch: filterBranch,
+			Since:  since,
+		}
+		rows, totals, err := db.FilteredSessions(filter, latest)
+		if err != nil {
+			return err
+		}
+		writeTable(a.stdout, []string{"SESSION", "HARNESS", "STATE", "USAGE_SOURCE", "HOST", "BRANCH", "WORKTREE", "INPUT", "OUTPUT", "ENDED_AT"}, func() [][]string {
+			out := make([][]string, 0, len(rows))
+			for _, row := range rows {
+				out = append(out, []string{
+					row.SessionID,
+					row.Harness,
+					row.CaptureState,
+					row.UsageSource,
+					row.HostName,
+					row.RepoBranch,
+					row.WorktreeRoot,
+					fmt.Sprintf("%d", row.TotalInputTokens),
+					fmt.Sprintf("%d", row.TotalOutputTokens),
+					row.EndedAt,
+				})
+			}
+			return out
+		}())
+		fmt.Fprintf(a.stdout, "\ntotals  sessions=%d  input=%d  output=%d  cache_read=%d  cache_write=%d  reasoning=%d\n",
+			totals.Sessions,
+			totals.TotalInputTokens,
+			totals.TotalOutputTokens,
+			totals.TotalCacheReadTokens,
+			totals.TotalCacheWriteTokens,
+			totals.TotalReasoningTokens,
+		)
+		return nil
 	}
 
 	rows, err := db.ListSessions(latest)
@@ -520,6 +574,7 @@ func (a *App) runQueryGroups(kind string, args []string) error {
 		"worktrees": "worktree",
 		"harnesses": "harness",
 		"tasks":     "task",
+		"hosts":     "host",
 	}[kind]
 
 	db, err := a.openStore(stateDirOverride)
@@ -661,6 +716,7 @@ func (a *App) runAnalyzeOverview(args []string) error {
 		overview.TotalCacheWriteTokens,
 		overview.TotalReasoningTokens,
 	)
+	writeGroupTable(a.stdout, "top hosts", overview.TopHosts)
 	writeGroupTable(a.stdout, "top repos", overview.TopRepos)
 	writeGroupTable(a.stdout, "top branches", overview.TopBranches)
 	writeModelTable(a.stdout, "top models", overview.TopModels)
@@ -825,7 +881,7 @@ func (a *App) openStore(stateDirOverride string) (*store.Store, error) {
 }
 
 func (a *App) printRootUsage() {
-	fmt.Fprintf(a.stdout, "arok %s\n\nCommands:\n  install copilot\n  capture --harness [copilot|vscode] --event <event>\n  reconcile --harness copilot\n  query [sessions|repos|branches|worktrees|harnesses|tasks|models]\n  analyze [overview|missing-finals]\n  doctor\n  update\n  version\n", version.Version)
+	fmt.Fprintf(a.stdout, "arok %s\n\nCommands:\n  install copilot\n  capture --harness [copilot|vscode] --event <event>\n  reconcile --harness copilot\n  query [sessions|hosts|repos|branches|worktrees|harnesses|tasks|models]\n  analyze [overview|missing-finals]\n  doctor\n  update\n  version\n", version.Version)
 }
 
 func summarizeWithRetry(opts copilot.SummarizeOptions, attempts int, delay time.Duration) (sessionpkg.SessionSummary, error) {

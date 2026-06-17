@@ -237,6 +237,7 @@ func (s *Store) GroupTotals(groupBy string, since *time.Time, limit int) ([]sess
 		"worktree": "worktree_root",
 		"harness":  "harness",
 		"task":     "task_id",
+		"host":     "host_name",
 	}[groupBy]
 	if !ok {
 		return nil, fmt.Errorf("unsupported grouping: %s", groupBy)
@@ -376,6 +377,9 @@ func (s *Store) Overview(since *time.Time, limit int) (sessionpkg.Overview, erro
 	}
 
 	var err error
+	if overview.TopHosts, err = s.GroupTotals("host", since, limit); err != nil {
+		return sessionpkg.Overview{}, err
+	}
 	if overview.TopRepos, err = s.GroupTotals("repo", since, limit); err != nil {
 		return sessionpkg.Overview{}, err
 	}
@@ -480,6 +484,97 @@ func (s *Store) listNonFinalSessions(since *time.Time, limit int) ([]sessionpkg.
 	return items, rows.Err()
 }
 
+// FilteredSessions returns sessions matching the filter plus an aggregate GroupTotal.
+func (s *Store) FilteredSessions(f sessionpkg.SessionFilter, limit int) ([]sessionpkg.SessionListItem, sessionpkg.GroupTotal, error) {
+	var conditions []string
+	var args []any
+
+	if f.Since != nil {
+		conditions = append(conditions, "COALESCE(ended_at, collected_at) >= ?")
+		args = append(args, f.Since.UTC().Format(time.RFC3339Nano))
+	}
+	if f.Host != "" {
+		conditions = append(conditions, "host_name = ?")
+		args = append(args, f.Host)
+	}
+	if f.Repo != "" {
+		conditions = append(conditions, "repo_remote = ?")
+		args = append(args, f.Repo)
+	}
+	if f.Branch != "" {
+		conditions = append(conditions, "repo_branch = ?")
+		args = append(args, f.Branch)
+	}
+
+	where := ""
+	if len(conditions) > 0 {
+		where = "WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	// Aggregate totals.
+	aggQuery := fmt.Sprintf(`
+		SELECT COUNT(*),
+		       COALESCE(SUM(total_input_tokens), 0),
+		       COALESCE(SUM(COALESCE(total_output_tokens, assistant_output_tokens, 0)), 0),
+		       COALESCE(SUM(total_cache_read_tokens), 0),
+		       COALESCE(SUM(total_cache_write_tokens), 0),
+		       COALESCE(SUM(total_reasoning_tokens), 0)
+		FROM sessions %s
+	`, where)
+	var totals sessionpkg.GroupTotal
+	if err := s.db.QueryRow(aggQuery, args...).Scan(
+		&totals.Sessions,
+		&totals.TotalInputTokens,
+		&totals.TotalOutputTokens,
+		&totals.TotalCacheReadTokens,
+		&totals.TotalCacheWriteTokens,
+		&totals.TotalReasoningTokens,
+	); err != nil {
+		return nil, sessionpkg.GroupTotal{}, err
+	}
+
+	// Session rows.
+	listArgs := append(args, limit)
+	listQuery := fmt.Sprintf(`
+		SELECT session_id, harness, capture_state, usage_source, host_name, COALESCE(repo_branch, ''),
+		       COALESCE(worktree_root, repo_root, ''),
+		       COALESCE(total_input_tokens, 0),
+		       COALESCE(total_output_tokens, assistant_output_tokens, 0),
+		       COALESCE(ended_at, collected_at, '')
+		FROM sessions
+		%s
+		ORDER BY COALESCE(ended_at, collected_at) DESC
+		LIMIT ?
+	`, where)
+
+	rows, err := s.db.Query(listQuery, listArgs...)
+	if err != nil {
+		return nil, sessionpkg.GroupTotal{}, err
+	}
+	defer rows.Close()
+
+	var items []sessionpkg.SessionListItem
+	for rows.Next() {
+		var item sessionpkg.SessionListItem
+		if err := rows.Scan(
+			&item.SessionID,
+			&item.Harness,
+			&item.CaptureState,
+			&item.UsageSource,
+			&item.HostName,
+			&item.RepoBranch,
+			&item.WorktreeRoot,
+			&item.TotalInputTokens,
+			&item.TotalOutputTokens,
+			&item.EndedAt,
+		); err != nil {
+			return nil, sessionpkg.GroupTotal{}, err
+		}
+		items = append(items, item)
+	}
+	return items, totals, rows.Err()
+}
+
 func (s *Store) init() error {
 	statements := []string{
 		`PRAGMA journal_mode = WAL;`,
@@ -529,6 +624,7 @@ func (s *Store) init() error {
 			source TEXT NOT NULL,
 			subagent_breakdown_source TEXT
 		);`,
+		`CREATE INDEX IF NOT EXISTS idx_sessions_host_name ON sessions (host_name);`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_ended_at ON sessions (ended_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_repo_remote ON sessions (repo_remote);`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_repo_branch ON sessions (repo_branch);`,
