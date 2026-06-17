@@ -1,3 +1,15 @@
+<p align="center">
+  <img src="assets/arok_logo.png" alt="arok logo" width="360" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/srbouffard/arok/releases/latest"><img src="https://img.shields.io/github/v/release/srbouffard/arok?color=3d6b8a&label=release" alt="Latest release"></a>
+  <a href="https://github.com/srbouffard/arok/actions/workflows/ci.yml"><img src="https://github.com/srbouffard/arok/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/srbouffard/arok/actions/workflows/codeql.yml"><img src="https://github.com/srbouffard/arok/actions/workflows/codeql.yml/badge.svg?branch=main" alt="CodeQL"></a>
+  <img src="https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white" alt="Go version">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
+</p>
+
 # arok
 
 **Agent Resource Observation Kit** — local-first observability for AI coding tools.
