@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -21,6 +22,7 @@ import (
 	"github.com/srbouffard/arok/internal/install"
 	sessionpkg "github.com/srbouffard/arok/internal/session"
 	"github.com/srbouffard/arok/internal/store"
+	"github.com/srbouffard/arok/internal/update"
 	"github.com/srbouffard/arok/internal/version"
 	"github.com/srbouffard/arok/internal/vscode"
 )
@@ -54,6 +56,8 @@ func (a *App) Run(args []string) error {
 		return a.runAnalyze(args[1:])
 	case "doctor":
 		return a.runDoctor(args[1:])
+	case "update", "upgrade":
+		return a.runUpdate(args[1:])
 	case "version", "--version":
 		fmt.Fprintf(a.stdout, "%s\n", version.Version)
 		return nil
@@ -746,7 +750,26 @@ func (a *App) runDoctor(args []string) error {
 		}
 	}
 
-	fmt.Fprintf(a.stdout, "state_dir\t%s\ndatabase\t%s\ncopilot_hook\t%s\nvscode_user_data_dir\t%s\nvscode_sessions_present\t%s\nvscode_sessions\t%d\nsessions\t%d\nnon_final_sessions\t%d\nbest_effort_sessions\t%d\n",
+	// Non-blocking version check with short timeout.
+	latestVersion := ""
+	updateAvailable := false
+	vctx, vcancel := context.WithTimeout(context.Background(), update.CheckTimeout)
+	defer vcancel()
+	if rel, err := update.LatestRelease(vctx); err == nil {
+		latestVersion = rel.TagName
+		updateAvailable = update.IsNewer(version.Version, latestVersion)
+	}
+
+	updateStatus := "up to date"
+	if updateAvailable {
+		updateStatus = fmt.Sprintf("yes (%s available — run: arok update)", latestVersion)
+	} else if latestVersion == "" {
+		updateStatus = "unknown (offline)"
+	}
+
+	fmt.Fprintf(a.stdout, "version\t%s\nupdate_available\t%s\nstate_dir\t%s\ndatabase\t%s\ncopilot_hook\t%s\nvscode_user_data_dir\t%s\nvscode_sessions_present\t%s\nvscode_sessions\t%d\nsessions\t%d\nnon_final_sessions\t%d\nbest_effort_sessions\t%d\n",
+		version.Version,
+		updateStatus,
 		stateDir,
 		statusString(dbErr == nil),
 		statusString(cfgErr == nil),
@@ -763,6 +786,33 @@ func (a *App) runDoctor(args []string) error {
 	return nil
 }
 
+func (a *App) runUpdate(_ []string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	fmt.Fprintf(a.stdout, "Checking for updates...\n")
+
+	release, err := update.LatestRelease(ctx)
+	if err != nil {
+		return fmt.Errorf("check for updates: %w", err)
+	}
+
+	if !update.IsNewer(version.Version, release.TagName) {
+		fmt.Fprintf(a.stdout, "Already up to date (%s).\n", version.Version)
+		return nil
+	}
+
+	fmt.Fprintf(a.stdout, "Updating %s → %s...\n", version.Version, release.TagName)
+
+	newTag, err := update.SelfUpdate(ctx)
+	if err != nil {
+		return fmt.Errorf("update failed: %w", err)
+	}
+
+	fmt.Fprintf(a.stdout, "Updated to %s.\n", newTag)
+	return nil
+}
+
 func (a *App) openStore(stateDirOverride string) (*store.Store, error) {
 	stateDir, err := config.ResolveStateDir(stateDirOverride)
 	if err != nil {
@@ -775,7 +825,7 @@ func (a *App) openStore(stateDirOverride string) (*store.Store, error) {
 }
 
 func (a *App) printRootUsage() {
-	fmt.Fprintf(a.stdout, "arok %s\n\nCommands:\n  install copilot\n  capture --harness [copilot|vscode] --event <event>\n  reconcile --harness copilot\n  query [sessions|repos|branches|worktrees|harnesses|tasks|models]\n  analyze [overview|missing-finals]\n  doctor\n  version\n", version.Version)
+	fmt.Fprintf(a.stdout, "arok %s\n\nCommands:\n  install copilot\n  capture --harness [copilot|vscode] --event <event>\n  reconcile --harness copilot\n  query [sessions|repos|branches|worktrees|harnesses|tasks|models]\n  analyze [overview|missing-finals]\n  doctor\n  update\n  version\n", version.Version)
 }
 
 func summarizeWithRetry(opts copilot.SummarizeOptions, attempts int, delay time.Duration) (sessionpkg.SessionSummary, error) {
