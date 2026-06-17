@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -16,10 +17,12 @@ import (
 
 	"github.com/srbouffard/arok/internal/config"
 	"github.com/srbouffard/arok/internal/copilot"
+	"github.com/srbouffard/arok/internal/gitmeta"
 	"github.com/srbouffard/arok/internal/install"
 	sessionpkg "github.com/srbouffard/arok/internal/session"
 	"github.com/srbouffard/arok/internal/store"
 	"github.com/srbouffard/arok/internal/version"
+	"github.com/srbouffard/arok/internal/vscode"
 )
 
 type App struct {
@@ -63,10 +66,18 @@ func (a *App) Run(args []string) error {
 }
 
 func (a *App) runInstall(args []string) error {
-	if len(args) == 0 || args[0] != "copilot" {
-		return errors.New("usage: arok install copilot [--state-dir ABSOLUTE_PATH] [--copilot-home PATH] [--binary-path PATH] [--print-config]")
+	if len(args) == 0 {
+		return errors.New("usage: arok install <harness> [flags]\nAvailable harnesses: copilot")
 	}
+	switch args[0] {
+	case "copilot":
+		return a.runInstallCopilot(args[1:])
+	default:
+		return fmt.Errorf("unknown harness %q — available: copilot", args[0])
+	}
+}
 
+func (a *App) runInstallCopilot(args []string) error {
 	fs := flag.NewFlagSet("install copilot", flag.ContinueOnError)
 	fs.SetOutput(a.stderr)
 	var (
@@ -79,7 +90,7 @@ func (a *App) runInstall(args []string) error {
 	fs.StringVar(&copilotHome, "copilot-home", copilotHome, "Override the Copilot home directory.")
 	fs.StringVar(&binaryPath, "binary-path", "", "Override the binary path written into the Copilot hook config.")
 	fs.BoolVar(&printConfig, "print-config", false, "Print the generated Copilot hook config instead of installing it.")
-	if err := fs.Parse(args[1:]); err != nil {
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
@@ -118,7 +129,7 @@ func (a *App) runInstall(args []string) error {
 		return err
 	}
 
-	fmt.Fprintf(a.stdout, "Installed Copilot hook.\nConfig: %s\nHook fragment: %s\nBinary: %s\nState dir: %s\n", result.ConfigPath, result.FragmentPath, result.BinaryPath, result.StateDir)
+	fmt.Fprintf(a.stdout, "Installed Copilot hooks for Copilot CLI (sessionEnd) and VS Code (Stop).\nConfig: %s\nHook fragment: %s\nBinary: %s\nState dir: %s\nImport existing VS Code sessions with: arok capture --harness vscode --event scan\n", result.ConfigPath, result.FragmentPath, result.BinaryPath, result.StateDir)
 	return nil
 }
 
@@ -141,9 +152,17 @@ func (a *App) runCapture(args []string) error {
 		return err
 	}
 
-	if harness != "copilot" {
+	switch harness {
+	case "copilot":
+		return a.runCaptureCopilot(eventName, stateDirOverride, payloadFile, noReconcile)
+	case "vscode":
+		return a.runCaptureVSCode(eventName, stateDirOverride, payloadFile)
+	default:
 		return fmt.Errorf("unsupported harness %q", harness)
 	}
+}
+
+func (a *App) runCaptureCopilot(eventName, stateDirOverride, payloadFile string, noReconcile bool) error {
 	if eventName == "" {
 		return errors.New("missing --event")
 	}
@@ -205,6 +224,98 @@ func (a *App) runCapture(args []string) error {
 		}
 	}
 
+	return nil
+}
+
+func (a *App) runCaptureVSCode(eventName, stateDirOverride, payloadFile string) error {
+	if eventName == "" {
+		return errors.New("missing --event")
+	}
+
+	stateDir, err := config.ResolveStateDir(stateDirOverride)
+	if err != nil {
+		return err
+	}
+	if err := config.EnsureLayout(stateDir); err != nil {
+		return err
+	}
+
+	db, err := store.Open(stateDir)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if strings.EqualFold(eventName, "scan") {
+		return a.captureVSCodeScan(stateDir, db)
+	}
+
+	payloadRaw, err := readPayload(a.stdin, payloadFile)
+	if err != nil {
+		return err
+	}
+
+	payload, ok := parseVSCodeStopPayload(payloadRaw)
+	if !ok {
+		if len(strings.TrimSpace(string(payloadRaw))) > 0 {
+			_ = appendLog(config.IngestLogPath(stateDir), fmt.Sprintf("%s VS Code capture skipped: invalid Stop payload\n", time.Now().UTC().Format(time.RFC3339Nano)))
+		}
+		return nil
+	}
+
+	sessionPath := deriveVSCodeChatSessionPath(payload.TranscriptPath)
+	if sessionPath == "" {
+		_ = appendLog(config.IngestLogPath(stateDir), fmt.Sprintf("%s VS Code capture skipped for %s: unable to derive chatSessions path\n", time.Now().UTC().Format(time.RFC3339Nano), payload.SessionID))
+		return nil
+	}
+
+	sessionData, err := vscode.ReadChatSession(sessionPath)
+	if err != nil {
+		_ = appendLog(config.IngestLogPath(stateDir), fmt.Sprintf("%s VS Code capture skipped for %s: %v\n", time.Now().UTC().Format(time.RFC3339Nano), payload.SessionID, err))
+		return nil
+	}
+	if payload.SessionID != "" {
+		sessionData.SessionID = payload.SessionID
+	}
+
+	summary := buildVSCodeSummary(sessionData, stateDir, eventName, sessionPath, payload.TranscriptPath)
+	if summary.SessionID == "" {
+		_ = appendLog(config.IngestLogPath(stateDir), fmt.Sprintf("%s VS Code capture skipped: missing session_id\n", time.Now().UTC().Format(time.RFC3339Nano)))
+		return nil
+	}
+
+	if err := upsertVSCodeSummary(db, summary); err != nil {
+		_ = appendLog(config.IngestLogPath(stateDir), fmt.Sprintf("%s VS Code database write failed for %s: %v\n", time.Now().UTC().Format(time.RFC3339Nano), summary.SessionID, err))
+		return nil
+	}
+	return nil
+}
+
+func (a *App) captureVSCodeScan(stateDir string, db *store.Store) error {
+	userDataDir := vscode.DefaultUserDataDir()
+	if userDataDir == "" {
+		_ = appendLog(config.IngestLogPath(stateDir), fmt.Sprintf("%s VS Code scan skipped: user data directory not determinable\n", time.Now().UTC().Format(time.RFC3339Nano)))
+		return nil
+	}
+
+	sessions, err := vscode.ScanSessions(userDataDir)
+	if err != nil {
+		_ = appendLog(config.IngestLogPath(stateDir), fmt.Sprintf("%s VS Code scan skipped: %v\n", time.Now().UTC().Format(time.RFC3339Nano), err))
+		return nil
+	}
+
+	for _, sessionData := range sessions {
+		if !shouldImportScannedVSCodeSession(sessionData) {
+			continue
+		}
+		summary := buildVSCodeSummary(sessionData, stateDir, "scan", "", "")
+		if summary.SessionID == "" {
+			continue
+		}
+		if err := upsertVSCodeSummary(db, summary); err != nil {
+			_ = appendLog(config.IngestLogPath(stateDir), fmt.Sprintf("%s VS Code scan write failed for %s: %v\n", time.Now().UTC().Format(time.RFC3339Nano), summary.SessionID, err))
+		}
+	}
 	return nil
 }
 
@@ -609,6 +720,7 @@ func (a *App) runDoctor(args []string) error {
 		sessionCount int64
 		nonFinals    int64
 		bestEffort   int64
+		vscodeCount  int64
 	)
 	if dbErr == nil {
 		db, err := store.Open(stateDir)
@@ -628,12 +740,19 @@ func (a *App) runDoctor(args []string) error {
 		if err != nil {
 			return err
 		}
+		vscodeCount, err = db.CountSessionsByHarness(sessionpkg.HarnessVSCodeCopilot)
+		if err != nil {
+			return err
+		}
 	}
 
-	fmt.Fprintf(a.stdout, "state_dir\t%s\ndatabase\t%s\ncopilot_hook\t%s\nsessions\t%d\nnon_final_sessions\t%d\nbest_effort_sessions\t%d\n",
+	fmt.Fprintf(a.stdout, "state_dir\t%s\ndatabase\t%s\ncopilot_hook\t%s\nvscode_user_data_dir\t%s\nvscode_sessions_present\t%s\nvscode_sessions\t%d\nsessions\t%d\nnon_final_sessions\t%d\nbest_effort_sessions\t%d\n",
 		stateDir,
 		statusString(dbErr == nil),
 		statusString(cfgErr == nil),
+		displayString(vscode.DefaultUserDataDir(), "(not determinable)"),
+		statusString(vscodeCount > 0),
+		vscodeCount,
 		sessionCount,
 		nonFinals,
 		bestEffort,
@@ -656,7 +775,7 @@ func (a *App) openStore(stateDirOverride string) (*store.Store, error) {
 }
 
 func (a *App) printRootUsage() {
-	fmt.Fprintf(a.stdout, "arok %s\n\nCommands:\n  install copilot\n  capture --harness copilot --event sessionEnd\n  reconcile --harness copilot\n  query [sessions|repos|branches|worktrees|harnesses|tasks|models]\n  analyze [overview|missing-finals]\n  doctor\n  version\n", version.Version)
+	fmt.Fprintf(a.stdout, "arok %s\n\nCommands:\n  install copilot\n  capture --harness [copilot|vscode] --event <event>\n  reconcile --harness copilot\n  query [sessions|repos|branches|worktrees|harnesses|tasks|models]\n  analyze [overview|missing-finals]\n  doctor\n  version\n", version.Version)
 }
 
 func summarizeWithRetry(opts copilot.SummarizeOptions, attempts int, delay time.Duration) (sessionpkg.SessionSummary, error) {
@@ -924,4 +1043,173 @@ func statusString(ok bool) string {
 		return "ok"
 	}
 	return "missing"
+}
+
+type vscodeStopPayload struct {
+	HookEventName  string `json:"hook_event_name"`
+	SessionID      string `json:"session_id"`
+	TranscriptPath string `json:"transcript_path"`
+	CWD            string `json:"cwd"`
+}
+
+func parseVSCodeStopPayload(raw []byte) (vscodeStopPayload, bool) {
+	if len(strings.TrimSpace(string(raw))) == 0 {
+		return vscodeStopPayload{}, false
+	}
+
+	var payload vscodeStopPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return vscodeStopPayload{}, false
+	}
+	if payload.SessionID == "" || payload.TranscriptPath == "" {
+		return vscodeStopPayload{}, false
+	}
+	return payload, true
+}
+
+func deriveVSCodeChatSessionPath(transcriptPath string) string {
+	if strings.TrimSpace(transcriptPath) == "" {
+		return ""
+	}
+	sessionFile := filepath.Base(transcriptPath)
+	storageDir := filepath.Dir(filepath.Dir(filepath.Dir(transcriptPath)))
+	if sessionFile == "." || sessionFile == string(filepath.Separator) {
+		return ""
+	}
+	return filepath.Join(storageDir, "chatSessions", sessionFile)
+}
+
+func buildVSCodeSummary(sessionData vscode.Session, stateDir, eventName, eventLogPath, transcriptPath string) sessionpkg.SessionSummary {
+	hostName, _ := os.Hostname()
+	git := gitmeta.Inspect(sessionData.WorkspaceFolder)
+
+	totalOutputTokens := int64(0)
+	totalInputTokens := int64(0)
+	modelStats := map[string]int64{}
+	modelCounts := map[string]int64{}
+	endedAt := sessionData.CreationDate
+	for _, req := range sessionData.Requests {
+		totalOutputTokens += req.CompletionTokens
+		totalInputTokens += req.PromptTokens
+		model := req.ModelID
+		if model == "" {
+			model = "unknown"
+		}
+		modelStats[model] += req.CompletionTokens
+		modelCounts[model]++
+		if req.Timestamp.After(endedAt) {
+			endedAt = req.Timestamp
+		}
+	}
+
+	modelNames := make([]string, 0, len(modelStats))
+	for model := range modelStats {
+		modelNames = append(modelNames, model)
+	}
+	slices.Sort(modelNames)
+
+	models := make([]sessionpkg.ModelUsage, 0, len(modelNames))
+	for _, model := range modelNames {
+		tokens := modelStats[model]
+		count := modelCounts[model]
+		models = append(models, sessionpkg.ModelUsage{
+			Model:                 model,
+			AssistantMessageCount: count,
+			AssistantOutputTokens: tokens,
+			OutputTokens:          sessionpkg.PtrInt64(tokens),
+			RequestCount:          sessionpkg.PtrInt64(count),
+		})
+	}
+
+	startedAt := ""
+	if !sessionData.CreationDate.IsZero() {
+		startedAt = sessionData.CreationDate.UTC().Format(time.RFC3339)
+	}
+	endedAtRaw := ""
+	if !endedAt.IsZero() {
+		endedAtRaw = endedAt.UTC().Format(time.RFC3339)
+	}
+
+	notes := []string{
+		"VS Code Copilot usage is summarized from the local chatSessions JSONL transaction log.",
+		"Token counts are sourced from result.metadata (primary) or completionTokens/usage fields (fallback).",
+	}
+	if sessionData.WorkspaceFolder == "" {
+		notes = append(notes, "Workspace metadata is unavailable for missing or remote VS Code workspaces.")
+	}
+
+	var totalInputTokensPtr *int64
+	if totalInputTokens > 0 {
+		totalInputTokensPtr = sessionpkg.PtrInt64(totalInputTokens)
+	}
+
+	return sessionpkg.SessionSummary{
+		SchemaVersion:         1,
+		Source:                "vscode",
+		Harness:               sessionpkg.HarnessVSCodeCopilot,
+		CollectedAt:           time.Now().UTC().Format(time.RFC3339Nano),
+		SessionID:             sessionData.SessionID,
+		EventName:             eventName,
+		CaptureState:          sessionpkg.CaptureStateFinal,
+		UsageSource:           "chatSessions.completionTokens",
+		TranscriptPath:        transcriptPath,
+		EventLogPath:          eventLogPath,
+		StateDir:              stateDir,
+		CWD:                   sessionData.WorkspaceFolder,
+		RepoRoot:              git.RepoRoot,
+		WorktreeRoot:          git.WorktreeRoot,
+		GitCommonDir:          git.GitCommonDir,
+		RepoRemote:            git.RepoRemote,
+		RepoBranch:            git.RepoBranch,
+		RepoHead:              git.RepoHead,
+		HostName:              hostName,
+		StartedAt:             startedAt,
+		EndedAt:               endedAtRaw,
+		InteractionCount:      int64(len(sessionData.Requests)),
+		AssistantMessageCount: int64(len(sessionData.Requests)),
+		AssistantOutputTokens: totalOutputTokens,
+		TotalInputTokens:      totalInputTokensPtr,
+		TotalOutputTokens:     sessionpkg.PtrInt64(totalOutputTokens),
+		Models:                models,
+		Notes:                 notes,
+	}
+}
+
+func shouldImportScannedVSCodeSession(sessionData vscode.Session) bool {
+	if len(sessionData.Requests) == 0 {
+		return true
+	}
+	for _, req := range sessionData.Requests {
+		if req.CompletionTokens > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func upsertVSCodeSummary(db *store.Store, summary sessionpkg.SessionSummary) error {
+	existing, err := db.GetSession(summary.SessionID)
+	if err != nil && !errors.Is(err, store.ErrSessionNotFound) {
+		return err
+	}
+	if err == nil && existing.CaptureState == sessionpkg.CaptureStateFinal &&
+		derefInt64(existing.TotalOutputTokens) == derefInt64(summary.TotalOutputTokens) &&
+		derefInt64(existing.TotalInputTokens) == derefInt64(summary.TotalInputTokens) {
+		return nil
+	}
+	return db.UpsertSession(summary)
+}
+
+func derefInt64(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+func displayString(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }

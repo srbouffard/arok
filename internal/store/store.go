@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -17,6 +18,8 @@ import (
 type Store struct {
 	db *sql.DB
 }
+
+var ErrSessionNotFound = errors.New("session not found")
 
 func Open(stateDir string) (*Store, error) {
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
@@ -176,7 +179,7 @@ func (s *Store) GetSession(sessionID string) (sessionpkg.SessionSummary, error) 
 	var raw string
 	if err := row.Scan(&raw); err != nil {
 		if err == sql.ErrNoRows {
-			return sessionpkg.SessionSummary{}, fmt.Errorf("session %s not found", sessionID)
+			return sessionpkg.SessionSummary{}, fmt.Errorf("%w: %s", ErrSessionNotFound, sessionID)
 		}
 		return sessionpkg.SessionSummary{}, err
 	}
@@ -395,6 +398,14 @@ func (s *Store) Overview(since *time.Time, limit int) (sessionpkg.Overview, erro
 func (s *Store) CountSessions() (int64, error) {
 	var count int64
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sessions`).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (s *Store) CountSessionsByHarness(harness string) (int64, error) {
+	var count int64
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE harness = ?`, harness).Scan(&count); err != nil {
 		return 0, err
 	}
 	return count, nil

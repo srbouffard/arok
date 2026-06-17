@@ -22,4 +22,13 @@ func TestRenderCopilotConfigIncludesCaptureCommand(t *testing.T) {
 	if entry["bash"] != "'/home/test/.local/bin/arok' capture --harness copilot --event sessionEnd" {
 		t.Fatalf("unexpected command: %v", entry["bash"])
 	}
+
+	stop := hooks["Stop"].([]any)
+	stopEntry := stop[0].(map[string]any)
+	if stopEntry["bash"] != "'/home/test/.local/bin/arok' capture --harness vscode --event Stop" {
+		t.Fatalf("unexpected VS Code command: %v", stopEntry["bash"])
+	}
+	if stopEntry["timeoutSec"] != float64(15) {
+		t.Fatalf("unexpected VS Code timeout: %v", stopEntry["timeoutSec"])
+	}
 }
