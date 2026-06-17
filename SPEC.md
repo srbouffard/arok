@@ -53,10 +53,13 @@ The first version does not aim to:
 
 ## Initial scope
 
-Version 1 should support:
+Version 1 supports:
 
 1. GitHub Copilot CLI
-2. OpenCode
+
+Version 2 will add:
+
+1. OpenCode
 
 Additional harnesses may be added later if they can map into the same normalized ingestion contract without changing the core storage design.
 
@@ -156,12 +159,13 @@ Version 1 should define a small command surface similar to:
 | Command | Responsibility |
 | --- | --- |
 | `arok install copilot` | Install or print Copilot hook configuration and helper shims |
-| `arok install opencode` | Install or print OpenCode hook configuration |
 | `arok capture --harness <name>` | Ingest one hook payload using the CLI's built-in harness logic |
 | `arok reconcile --harness <name>` | Re-read a known session source and upgrade a provisional capture |
 | `arok query` | Run focused reports against the database |
 | `arok analyze` | Run higher-level usage and savings analytics |
 | `arok doctor` | Validate state dir, DB health, hook config, and runtime assumptions |
+
+Version 2 will add `arok install opencode` and corresponding OpenCode harness support.
 
 Rules:
 
@@ -411,16 +415,21 @@ If a future version introduces richer capture, it must be an explicit opt-in.
 
 ## Rollout plan
 
-Implementation should proceed in this order:
+Version 1 implementation (completed):
 
-1. finalize product name, command name, and state-dir naming
-2. implement the single-binary CLI with SQLite storage and shared ingest path
-3. add GitHub Copilot CLI hook support centered on `sessionEnd`, metadata enrichment, and autonomous reconciliation
-4. add query and analytics commands
-5. add OpenCode support through a separate CLI harness implementation that maps into the same normalized session schema
-6. verify overall session totals from Copilot CLI `session.shutdown`
-7. verify optional sub-agent breakdown against at least one parent session containing `subagent.completed` events
-8. add the `install.sh` bootstrap flow and direct binary release packaging
+1. ✅ finalize product name, command name, and state-dir naming
+2. ✅ implement the single-binary CLI with SQLite storage and shared ingest path
+3. ✅ add GitHub Copilot CLI hook support centered on `sessionEnd`, metadata enrichment, and autonomous reconciliation
+4. ✅ add query and analytics commands
+5. ✅ verify overall session totals from Copilot CLI `session.shutdown`
+6. ✅ verify optional sub-agent breakdown against at least one parent session containing `subagent.completed` events
+7. ✅ add the `install.sh` bootstrap flow
+
+Version 2 roadmap:
+
+1. add OpenCode support through a separate CLI harness implementation that maps into the same normalized session schema
+2. add direct binary release packaging and download flow
+3. add prompt-cache savings estimate calculations
 
 ## Deployment and update behavior
 
