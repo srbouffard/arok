@@ -289,12 +289,6 @@ The state directory is safe for concurrent writes — SQLite's WAL mode handles 
 npx skills add srbouffard/arok
 ```
 
-**Or manually clone into your project's skills directory:**
-
-```bash
-cp -r skills/analyze-agent-usage .agents/skills/
-```
-
 The skill lives in [`skills/analyze-agent-usage/`](skills/analyze-agent-usage/) and follows the [agentskills.io](https://agentskills.io) specification.
 
 ---
