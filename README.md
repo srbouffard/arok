@@ -44,6 +44,16 @@ cd arok
 
 Requires Go 1.26+ to build.
 
+**Add to PATH** (if not already present):
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+export PATH="$HOME/.local/bin:$PATH"
+
+# Or for current session only
+export PATH="$HOME/.local/bin:$PATH"
+```
+
 **Then configure Copilot CLI hooks:**
 
 ```bash
