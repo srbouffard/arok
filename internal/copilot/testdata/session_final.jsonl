@@ -1,0 +1,4 @@
+{"timestamp":"2026-01-01T00:00:00Z","type":"assistant.message","data":{"model":"claude-sonnet","outputTokens":150,"interactionId":"i-1","toolRequests":[{}]}}
+{"timestamp":"2026-01-01T00:00:01Z","type":"tool.execution_complete","data":{"success":true}}
+{"timestamp":"2026-01-01T00:00:02Z","type":"subagent.completed","agentId":"agent-1","data":{"toolCallId":"tc-1","agentName":"explore","agentDisplayName":"Explore","model":"claude-haiku","totalToolCalls":4,"totalTokens":800,"durationMs":2500}}
+{"timestamp":"2026-01-01T00:00:03Z","type":"session.shutdown","data":{"modelMetrics":{"claude-sonnet":{"usage":{"inputTokens":500,"outputTokens":150,"cacheReadTokens":200,"cacheWriteTokens":50},"requests":{"count":1}},"claude-haiku":{"usage":{"inputTokens":300,"outputTokens":100},"requests":{"count":4}}}}}
