@@ -1,247 +1,131 @@
 # Adding a New Harness to arok
 
 A **harness** is an AI agent tool that fires hooks at the end of a session — for example,
-GitHub Copilot CLI, VS Code Copilot, Hermes, or OpenCode. This guide walks you through
-adding support for a new harness.
+GitHub Copilot CLI, VS Code Copilot, Hermes, or OpenCode. This guide explains the concepts
+you need to understand and the files you need to create. For concrete code structure, refer
+to the existing harness implementations as living examples.
 
-## Overview
+## How capture works
 
-The capture pipeline for every harness looks the same:
+When an agent session ends, the harness fires a hook that runs:
 
 ```
-agent tool fires hook
-  → runs: arok capture --harness <name> --event <event>
-    → parses the hook payload
-    → reads session data from the harness-specific source
-    → builds a session.SessionSummary
-    → stores it in the arok SQLite database
+arok capture --harness <name> --event <event>
 ```
 
-Adding a harness means implementing steps 2–4 for your tool.
+arok receives a JSON payload from the hook, parses it, reads any additional session data
+from the tool's own files or APIs, assembles a `session.SessionSummary`, and writes it to
+the SQLite database.
+
+Your job as a harness author is to implement that payload→summary translation for your tool.
 
 ## File structure
 
-The codebase organises harness-specific code into two places:
+Each harness lives in two places:
 
 ```
-internal/<harness>/         ← payload parsing and session summarizing logic
-internal/cli/app_<harness>.go  ← CLI plumbing: runCapture<Harness>(), helpers
+internal/<harness>/            ← payload parsing and session summarizing logic
+internal/cli/app_<harness>.go  ← CLI plumbing: runCapture<Harness>() and helpers
 ```
 
-Look at the existing copilot harness for reference:
+**Read the copilot harness before writing any code.** It is the canonical, fully-tested
+reference implementation:
 
 ```
 internal/copilot/copilot.go          ← Summarize(), ParsePayload(), ResolveSessionFile()
-internal/cli/app_copilot.go          ← runCaptureCopilot(), runReconcile(), etc.
-internal/cli/app_copilot_test.go     ← integration tests
-internal/copilot/testdata/           ← fixture files for unit tests
+internal/cli/app_copilot.go          ← runCaptureCopilot(), runReconcile(), and helpers
+internal/cli/app_copilot_test.go     ← integration tests via App.Run()
+internal/copilot/testdata/           ← fixture JSONL files used by unit tests
 ```
 
-## Step-by-step: adding "myharness"
+The VS Code harness (`internal/vscode/`, `internal/cli/app_vscode.go`) is a simpler
+example without reconcile logic — useful if your harness delivers complete data at hook time.
 
-### 1. Create the parsing package
+## Key concepts
 
-Create `internal/myharness/myharness.go`. Its job is to convert a raw hook payload
-and whatever session log/API the tool provides into a `session.SessionSummary`.
+### The hook payload may not contain everything you need
 
-```go
-package myharness
+Most harnesses pass only a thin payload (session ID, working directory, maybe an event
+name). The real metrics — token counts, model names, tool calls — often live in a separate
+log file or API that the tool writes during the session.
 
-import (
-    sessionpkg "github.com/srbouffard/arok/internal/session"
-    "time"
-)
+Use the session ID and working directory from the payload as keys to locate and read that
+richer data source. See how `ResolveSessionFile` in `internal/copilot/copilot.go` uses the
+`COPILOT_HOME` environment variable and the session ID to find the right `events.jsonl`
+file.
 
-// Payload holds the data delivered by the hook runner.
-type Payload struct {
-    SessionID string `json:"session_id"`
-    CWD       string `json:"cwd"`
-    // ... add fields from your tool's hook payload
-}
+### Final metrics may not be available when the hook fires
 
-// Summarize converts payload and session data into a SessionSummary.
-func Summarize(eventName, stateDir string, p Payload) (sessionpkg.SessionSummary, error) {
-    // Read session data from wherever your tool stores it.
-    // Build and return a SessionSummary.
-    return sessionpkg.SessionSummary{
-        SchemaVersion: 1,
-        Source:        "myharness",
-        Harness:       "myharness",           // lowercase kebab-case identifier
-        CollectedAt:   time.Now().UTC().Format(time.RFC3339Nano),
-        SessionID:     p.SessionID,
-        EventName:     eventName,
-        CaptureState:  sessionpkg.CaptureStateFinal,
-        // ... populate remaining fields
-    }, nil
-}
-```
+Some tools emit usage metrics asynchronously — the hook fires to signal session end, but the
+final token count is written to disk only moments later (or is computed by a background
+process). If you try to read the metrics immediately, you will get incomplete data.
 
-Key `SessionSummary` fields to fill in:
+**Do not block the hook.** The hook runner expects a fast exit. Instead:
 
-| Field | Description |
-|-------|-------------|
-| `Harness` | Lowercase kebab-case name stored in the database (e.g. `"myharness"`) |
-| `SessionID` | Unique session identifier from the hook payload |
-| `CaptureState` | `"final"` if you have complete data now; `"provisional"` if you need a reconcile pass |
-| `TotalInputTokens` / `TotalOutputTokens` | `*int64` — use `session.PtrInt64(n)` |
-| `Models` | Per-model breakdown as `[]session.ModelUsage` |
-| `CWD` / `RepoRoot` / `RepoBranch` | Use `gitmeta.Inspect(cwd)` to fill these from the working directory |
+1. Capture whatever is available immediately and store it with
+   `CaptureState: "provisional"`.
+2. Spawn a short-lived background process (`arok reconcile --harness <name>`) that polls
+   until the final data appears, then upgrades the record to `CaptureState: "final"`.
+3. If the background process exhausts its retries without finding complete data (e.g. the
+   process was killed), mark the record `CaptureState: "best_effort"` so the data is still
+   usable but clearly flagged as incomplete.
 
-### 2. Create the CLI plumbing
+This is exactly what the copilot harness does — see `spawnDetachedReconcile` and
+`runReconcile` in `internal/cli/app_copilot.go`.
 
-Create `internal/cli/app_myharness.go`:
+If your tool delivers complete metrics synchronously at hook time, you can skip all of this
+and always return `CaptureState: "final"`. The VS Code harness is an example of this
+simpler path.
 
-```go
-package cli
+### Use git metadata to enrich sessions
 
-import (
-    "encoding/json"
-    "errors"
-    "fmt"
-    "time"
+The hook payload rarely includes repository context. Use `gitmeta.Inspect(cwd)` (see
+`internal/gitmeta/`) to populate `RepoRoot`, `RepoBranch`, and `RepoRemote` on the
+`SessionSummary` from the working directory that the payload provides.
 
-    "github.com/srbouffard/arok/internal/config"
-    "github.com/srbouffard/arok/internal/myharness"
-    "github.com/srbouffard/arok/internal/store"
-)
+## Adding your harness: the steps
 
-func (a *App) runCaptureMyHarness(eventName, stateDirOverride, payloadFile string) error {
-    if eventName == "" {
-        return errors.New("missing --event")
-    }
+1. **Create `internal/<harness>/`** — implement `Summarize()`, which takes the parsed
+   payload and returns a `session.SessionSummary`. Model it on
+   `internal/copilot/copilot.go`.
 
-    stateDir, err := config.ResolveStateDir(stateDirOverride)
-    if err != nil {
-        return err
-    }
-    if err := config.EnsureLayout(stateDir); err != nil {
-        return err
-    }
+2. **Create `internal/cli/app_<harness>.go`** — implement `runCapture<Harness>()` as a
+   method on `*App`. It reads the payload, calls `Summarize()`, opens the store, and calls
+   `db.UpsertSession()`. Model it on `internal/cli/app_copilot.go` (or the simpler
+   `app_vscode.go` if you don't need reconcile).
 
-    payloadRaw, err := readPayload(a.stdin, payloadFile)
-    if err != nil {
-        return err
-    }
+3. **Wire the dispatcher** — add a `case "<harness>":` to the `switch` in `runCapture()`
+   in `internal/cli/app.go`. That single line is the only change needed in shared code.
 
-    var p myharness.Payload
-    if err := json.Unmarshal(payloadRaw, &p); err != nil {
-        return err
-    }
+4. **Update the usage string** — add your harness name to the `--harness` list in
+   `printRootUsage()` in `app.go`.
 
-    summary, err := myharness.Summarize(eventName, stateDir, p)
-    if err != nil {
-        _ = appendLog(config.IngestLogPath(stateDir), fmt.Sprintf("%s myharness capture failed: %v\n", time.Now().UTC().Format(time.RFC3339Nano), err))
-        return err
-    }
-
-    db, err := store.Open(stateDir)
-    if err != nil {
-        return err
-    }
-    defer db.Close()
-
-    return db.UpsertSession(summary)
-}
-```
-
-### 3. Wire it into the capture dispatcher
-
-In `internal/cli/app.go`, add your harness to the `runCapture` switch:
-
-```go
-switch harness {
-case "copilot":
-    return a.runCaptureCopilot(eventName, stateDirOverride, payloadFile, noReconcile)
-case "vscode":
-    return a.runCaptureVSCode(eventName, stateDirOverride, payloadFile)
-case "myharness":                                           // ← add this
-    return a.runCaptureMyHarness(eventName, stateDirOverride, payloadFile)
-default:
-    return fmt.Errorf("unsupported harness %q", harness)
-}
-```
-
-### 4. Wire it into the hook config (optional)
-
-If your tool uses a JSON hook config file (like Copilot CLI does), add an
-`arok install myharness` command by following the same pattern as
-`runInstallCopilot` in `app_copilot.go` and `InstallCopilot` in
-`internal/install/copilot.go`.
-
-Then add a case in `runInstall` in `app.go`:
-
-```go
-case "myharness":
-    return a.runInstallMyHarness(args[1:])
-```
-
-### 5. Update the usage string
-
-In `printRootUsage()` in `app.go`, add your harness to the capture line:
-
-```go
-fmt.Fprintf(a.stdout, "... capture --harness [copilot|vscode|myharness] --event <event> ...")
-```
-
-## Reconcile (only needed for two-phase capture)
-
-The copilot harness needs a reconcile pass because `session.shutdown.modelMetrics`
-arrives asynchronously after the hook fires. Most harnesses can produce a final
-`SessionSummary` immediately and do not need this.
-
-If your harness fires a hook before all metrics are available, return
-`CaptureState: sessionpkg.CaptureStateProvisional` from `Summarize()` and then
-spawn a background `arok reconcile --harness myharness` process. See
-`spawnDetachedReconcile` and `runReconcile` in `app_copilot.go` for the pattern.
+5. **Add `arok install` support (optional)** — if your tool uses a config file that arok
+   can write, follow the pattern in `runInstallCopilot` / `internal/install/copilot.go`.
 
 ## Writing tests
 
-Add two test files:
+**Unit tests** — `internal/<harness>/<harness>_test.go`
 
-**Unit tests** — `internal/myharness/myharness_test.go`
+Test `Summarize()` directly using fixture files in `internal/<harness>/testdata/`. Your
+fixture files are also living documentation of what the raw session data looks like — make
+them representative. See `internal/copilot/copilot_test.go` and its testdata for the
+pattern.
 
-Test `Summarize()` in isolation using fixture JSONL files in
-`internal/myharness/testdata/`. See `internal/copilot/copilot_test.go` for
-examples.
+**Integration tests** — `internal/cli/app_<harness>_test.go`
 
-**Integration tests** — `internal/cli/app_myharness_test.go`
+Test the end-to-end path through `App.Run()`. Every code path should be covered: a final
+capture, a provisional capture (if applicable), and the failure cases (missing session ID,
+unknown event, etc.). See `internal/cli/app_copilot_test.go` for the full pattern.
 
-Test the full `arok capture --harness myharness` flow through `App.Run()`.
-See `internal/cli/app_copilot_test.go` for the pattern:
-
-```go
-func TestRunCaptureMyHarnessStoresSession(t *testing.T) {
-    stateDir := t.TempDir()
-    payloadFile := writeTempFile(t, "payload.json", `{"session_id":"sess-1","cwd":"/tmp"}`)
-
-    app := New(bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{})
-    if err := app.Run([]string{
-        "capture", "--harness", "myharness", "--event", "sessionEnd",
-        "--state-dir", stateDir,
-        "--payload-file", payloadFile,
-    }); err != nil {
-        t.Fatalf("Run returned error: %v", err)
-    }
-
-    db, _ := store.Open(stateDir)
-    defer db.Close()
-    summary, err := db.GetSession("sess-1")
-    if err != nil {
-        t.Fatalf("GetSession: %v", err)
-    }
-    if summary.Harness != "myharness" {
-        t.Errorf("Harness = %q, want myharness", summary.Harness)
-    }
-    // ... assert token counts, capture state, etc.
-}
-```
+Run `make check` before opening a PR. All tests must pass.
 
 ## Checklist
 
-- [ ] `internal/myharness/myharness.go` — `Summarize()` returns a valid `SessionSummary`
-- [ ] `internal/cli/app_myharness.go` — `runCaptureMyHarness()` method
-- [ ] `internal/cli/app.go` — case added to `runCapture()` switch
-- [ ] `internal/myharness/myharness_test.go` — unit tests for `Summarize()`
-- [ ] `internal/myharness/testdata/` — fixture JSONL files
-- [ ] `internal/cli/app_myharness_test.go` — integration test via `App.Run()`
+- [ ] `internal/<harness>/<harness>.go` — `Summarize()` returns a valid `SessionSummary`
+- [ ] `internal/cli/app_<harness>.go` — `runCapture<Harness>()` method on `*App`
+- [ ] `internal/cli/app.go` — one `case` added to the `runCapture()` switch
+- [ ] `internal/<harness>/<harness>_test.go` — unit tests for `Summarize()`
+- [ ] `internal/<harness>/testdata/` — fixture files covering final and (if needed) provisional states
+- [ ] `internal/cli/app_<harness>_test.go` — integration tests via `App.Run()`
 - [ ] `make check` passes
