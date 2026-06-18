@@ -33,6 +33,14 @@ Instructions for AI agents working on this repository.
 - **internal/**: All implementation packages
 - **poc/**: Original proof-of-concept (reference only, not used in production)
 
+## Adding Harness Support
+
+When adding support for a new AI agent tool (harness), read **`docs/adding-a-harness.md`**
+before writing any code. It explains the key concepts, the expected file structure, and
+important edge cases (thin hook payloads, async metrics, provisional capture). The existing
+copilot harness (`internal/copilot/`, `internal/cli/app_copilot.go`) is the canonical
+reference implementation to follow.
+
 ## Testing
 
 - Unit tests: `go test ./...`
