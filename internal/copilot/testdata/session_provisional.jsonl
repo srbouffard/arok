@@ -1,0 +1,3 @@
+{"timestamp":"2026-01-01T00:00:00Z","type":"assistant.message","data":{"model":"claude-sonnet","outputTokens":150,"interactionId":"i-1","toolRequests":[{}]}}
+{"timestamp":"2026-01-01T00:00:01Z","type":"tool.execution_complete","data":{"success":true}}
+{"timestamp":"2026-01-01T00:00:02Z","type":"assistant.message","data":{"model":"claude-sonnet","outputTokens":80,"interactionId":"i-2"}}
