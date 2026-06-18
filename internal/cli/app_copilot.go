@@ -320,7 +320,10 @@ func spawnDetachedReconcile(stateDir string, payloadRaw []byte, sessionID, event
 	if err != nil {
 		return err
 	}
-	defer logFile.Close()
+	// Close the parent's copy of the fd after cmd.Start() hands it to the child.
+	// The child process writes directly to the kernel fd, so no Go-side buffering
+	// exists to lose. The _ discard is intentional.
+	defer func() { _ = logFile.Close() }()
 
 	cmd := exec.Command(
 		exe,
