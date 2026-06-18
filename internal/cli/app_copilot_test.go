@@ -2,9 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	sessionpkg "github.com/srbouffard/arok/internal/session"
@@ -152,6 +154,161 @@ func TestRunCaptureCopilotUnknownHarness(t *testing.T) {
 	err := app.Run([]string{"capture", "--harness", "unknown-harness", "--event", "sessionEnd"})
 	if err == nil {
 		t.Fatal("expected error for unknown harness, got nil")
+	}
+}
+
+func TestRunInstallCopilotPrintConfig(t *testing.T) {
+	stateDir := t.TempDir()
+	var out bytes.Buffer
+	app := New(bytes.NewReader(nil), &out, &bytes.Buffer{})
+	if err := app.Run([]string{
+		"install", "copilot",
+		"--print-config",
+		"--state-dir", stateDir,
+		"--binary-path", "/usr/local/bin/arok",
+	}); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	output := out.String()
+	if !strings.Contains(output, "sessionEnd") {
+		t.Error("expected config to contain sessionEnd hook")
+	}
+	if !strings.Contains(output, "/usr/local/bin/arok") {
+		t.Error("expected config to contain binary path")
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Errorf("config is not valid JSON: %v", err)
+	}
+}
+
+func TestRunReconcileUpgradesProvisionalToFinal(t *testing.T) {
+	stateDir := t.TempDir()
+	copilotHome := t.TempDir()
+	sessionID := "sess-reconcile-final"
+
+	eventsDir := filepath.Join(copilotHome, "session-state", sessionID)
+	if err := os.MkdirAll(eventsDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	eventsFile := filepath.Join(eventsDir, "events.jsonl")
+
+	// Stage 1: capture with no shutdown event → provisional.
+	if err := os.WriteFile(eventsFile, []byte(sessionProvisionalJSONL), 0o644); err != nil {
+		t.Fatalf("WriteFile(provisional) returned error: %v", err)
+	}
+	payload := fmt.Sprintf(`{"sessionId":%q,"cwd":%q}`, sessionID, t.TempDir())
+	payloadFile := writeTempFile(t, "payload.json", payload)
+	t.Setenv("COPILOT_HOME", copilotHome)
+	t.Setenv("AROK_COPILOT_SHUTDOWN_RETRY_ATTEMPTS", "1")
+
+	app := New(bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{})
+	if err := app.Run([]string{
+		"capture", "--harness", "copilot", "--event", "sessionEnd",
+		"--state-dir", stateDir, "--payload-file", payloadFile, "--no-reconcile",
+	}); err != nil {
+		t.Fatalf("capture returned error: %v", err)
+	}
+
+	db, err := store.Open(stateDir)
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	before, err := db.GetSession(sessionID)
+	db.Close()
+	if err != nil {
+		t.Fatalf("GetSession returned error: %v", err)
+	}
+	if before.CaptureState != sessionpkg.CaptureStateProvisional {
+		t.Fatalf("pre-condition: CaptureState = %q, want provisional", before.CaptureState)
+	}
+
+	// Stage 2: shutdown event arrives → reconcile upgrades to final.
+	if err := os.WriteFile(eventsFile, []byte(sessionFinalJSONL), 0o644); err != nil {
+		t.Fatalf("WriteFile(final) returned error: %v", err)
+	}
+	reconcilePayload := writeTempFile(t, "reconcile_payload.json", payload)
+
+	if err := app.Run([]string{
+		"reconcile", "--harness", "copilot", "--event", "sessionEnd",
+		"--state-dir", stateDir,
+		"--payload-file", reconcilePayload,
+		"--session-file", eventsFile,
+		"--session-id", sessionID,
+		"--attempts", "1",
+	}); err != nil {
+		t.Fatalf("reconcile returned error: %v", err)
+	}
+
+	db2, err := store.Open(stateDir)
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	defer db2.Close()
+	after, err := db2.GetSession(sessionID)
+	if err != nil {
+		t.Fatalf("GetSession returned error: %v", err)
+	}
+	if after.CaptureState != sessionpkg.CaptureStateFinal {
+		t.Errorf("CaptureState = %q, want final", after.CaptureState)
+	}
+	if after.TotalInputTokens == nil || *after.TotalInputTokens != 500 {
+		t.Errorf("TotalInputTokens = %#v, want 500", after.TotalInputTokens)
+	}
+}
+
+func TestRunReconcileMarksBestEffortWhenExhausted(t *testing.T) {
+	stateDir := t.TempDir()
+	copilotHome := t.TempDir()
+	sessionID := "sess-reconcile-best-effort"
+
+	eventsDir := filepath.Join(copilotHome, "session-state", sessionID)
+	if err := os.MkdirAll(eventsDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	eventsFile := filepath.Join(eventsDir, "events.jsonl")
+	if err := os.WriteFile(eventsFile, []byte(sessionProvisionalJSONL), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	payload := fmt.Sprintf(`{"sessionId":%q,"cwd":%q}`, sessionID, t.TempDir())
+	payloadFile := writeTempFile(t, "payload.json", payload)
+	t.Setenv("COPILOT_HOME", copilotHome)
+	t.Setenv("AROK_COPILOT_SHUTDOWN_RETRY_ATTEMPTS", "1")
+
+	app := New(bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{})
+	if err := app.Run([]string{
+		"capture", "--harness", "copilot", "--event", "sessionEnd",
+		"--state-dir", stateDir, "--payload-file", payloadFile, "--no-reconcile",
+	}); err != nil {
+		t.Fatalf("capture returned error: %v", err)
+	}
+
+	// Reconcile against the still-provisional events file — should exhaust and mark best_effort.
+	reconcilePayload := writeTempFile(t, "reconcile_payload.json", payload)
+	err := app.Run([]string{
+		"reconcile", "--harness", "copilot", "--event", "sessionEnd",
+		"--state-dir", stateDir,
+		"--payload-file", reconcilePayload,
+		"--session-file", eventsFile,
+		"--session-id", sessionID,
+		"--attempts", "1",
+	})
+	if err == nil {
+		t.Fatal("expected error when reconcile exhausts without final metrics")
+	}
+
+	db, err := store.Open(stateDir)
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	defer db.Close()
+	after, err := db.GetSession(sessionID)
+	if err != nil {
+		t.Fatalf("GetSession returned error: %v", err)
+	}
+	if after.CaptureState != sessionpkg.CaptureStateBestEffort {
+		t.Errorf("CaptureState = %q, want best_effort", after.CaptureState)
 	}
 }
 

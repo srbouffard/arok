@@ -95,7 +95,9 @@ Create `internal/cli/app_myharness.go`:
 package cli
 
 import (
+    "encoding/json"
     "errors"
+    "fmt"
     "time"
 
     "github.com/srbouffard/arok/internal/config"
@@ -121,7 +123,6 @@ func (a *App) runCaptureMyHarness(eventName, stateDirOverride, payloadFile strin
         return err
     }
 
-    // Parse the hook payload.
     var p myharness.Payload
     if err := json.Unmarshal(payloadRaw, &p); err != nil {
         return err
